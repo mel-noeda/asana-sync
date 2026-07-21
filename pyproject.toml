@@ -1,0 +1,50 @@
+[project]
+name = "asana-sync"
+version = "0.1.0"
+description = "Pull Asana tasks and create corresponding GitHub issues"
+readme = "README.md"
+requires-python = ">=3.14"
+dependencies = [
+    "requests",
+    "python-dotenv",
+]
+
+[project.scripts]
+A2G = "asana_to_github:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+only-include = ["asana_to_github.py"]
+
+[dependency-groups]
+dev = [
+    "ruff",
+]
+
+[tool.ruff]
+line-length = 120
+target-version = "py314"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+]
+ignore = [
+    "E501",  # line length handled by formatter
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["asana_to_github"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "auto"
