@@ -1,0 +1,194 @@
+name: GitHub → Asana
+
+# Fast path: sync a GitHub issue/PR (and its Projects Status column) into Asana.
+#
+# Note: GitHub Actions does not support the projects_v2_item webhook as a workflow
+# trigger. Column moves are covered by:
+#   1) a short schedule that reconciles Status → Asana sections
+#   2) repository_dispatch (optional org/user webhook bridge)
+#   3) normal issue/PR events (also refresh Status when those fire)
+
+on:
+  issues:
+    types:
+      - opened
+      - edited
+      - closed
+      - reopened
+      - labeled
+      - unlabeled
+      - assigned
+      - unassigned
+  pull_request:
+    types:
+      - opened
+      - edited
+      - closed
+      - reopened
+      - labeled
+      - unlabeled
+      - synchronize
+      - ready_for_review
+      - converted_to_draft
+  schedule:
+    # Reconcile board columns ≈ every 2 minutes (Actions cron minimum granularity).
+    - cron: "*/2 * * * *"
+  repository_dispatch:
+    types: [github_project_item]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "GitHub issue or PR number (leave empty to reconcile all project columns)"
+        required: false
+        type: string
+      columns_only:
+        description: "Only sync Status→Asana section (recommended for column testing)"
+        required: false
+        type: boolean
+        default: false
+      sync_all_project_items:
+        description: "Sync every Issue/PR on the Projects v2 board"
+        required: false
+        type: boolean
+        default: false
+      github_repo:
+        description: "owner/repo (defaults to this repository)"
+        required: false
+        type: string
+      asana_token:
+        description: "Asana PAT (stopgap if ASANA_TOKEN secret is unset)"
+        required: false
+        type: string
+      github_pat:
+        description: "GitHub PAT (stopgap if ASANA_SYNC_GITHUB_TOKEN secret is unset)"
+        required: false
+        type: string
+      asana_project_gid:
+        description: "Asana project GID (stopgap if ASANA_PROJECT_GID secret is unset)"
+        required: false
+        type: string
+      github_project_owner:
+        description: "Projects v2 owner (stopgap if GITHUB_PROJECT_OWNER secret is unset)"
+        required: false
+        type: string
+      github_project_number:
+        description: "Projects v2 number (stopgap if GITHUB_PROJECT_NUMBER secret is unset)"
+        required: false
+        type: string
+      dry_run:
+        description: "Preview without writing to Asana"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: g2a-${{ github.repository }}-${{ github.event.issue.number || github.event.pull_request.number || github.event.client_payload.issue_number || inputs.issue_number || 'columns' }}
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version-file: ".python-version"
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Resolve sync mode
+        id: mode
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          ISSUE_FROM_EVENT: ${{ github.event.issue.number || github.event.pull_request.number || github.event.client_payload.issue_number || inputs.issue_number }}
+          DISPATCH_REPO: ${{ github.event.client_payload.github_repo }}
+          DISPATCH_STATUS: ${{ github.event.client_payload.status }}
+          INPUT_SYNC_ALL: ${{ inputs.sync_all_project_items }}
+          INPUT_COLUMNS_ONLY: ${{ inputs.columns_only }}
+        run: |
+          columns_only=false
+          sync_all=false
+
+          if [ "$EVENT_NAME" = "schedule" ]; then
+            sync_all=true
+            columns_only=true
+          elif [ "$EVENT_NAME" = "repository_dispatch" ]; then
+            columns_only=true
+          elif [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            if [ "$INPUT_SYNC_ALL" = "true" ] || [ -z "$ISSUE_FROM_EVENT" ]; then
+              sync_all=true
+            fi
+            if [ "$INPUT_COLUMNS_ONLY" = "true" ]; then
+              columns_only=true
+            fi
+          fi
+
+          echo "issue_number=${ISSUE_FROM_EVENT}" >> "$GITHUB_OUTPUT"
+          echo "sync_all=${sync_all}" >> "$GITHUB_OUTPUT"
+          echo "columns_only=${columns_only}" >> "$GITHUB_OUTPUT"
+          echo "dispatch_repo=${DISPATCH_REPO}" >> "$GITHUB_OUTPUT"
+          echo "dispatch_status=${DISPATCH_STATUS}" >> "$GITHUB_OUTPUT"
+
+      - name: Sync GitHub → Asana
+        env:
+          ASANA_TOKEN: ${{ inputs.asana_token || secrets.ASANA_TOKEN }}
+          GITHUB_TOKEN: ${{ inputs.github_pat || secrets.ASANA_SYNC_GITHUB_TOKEN }}
+          ASANA_PROJECT_GID: ${{ inputs.asana_project_gid || secrets.ASANA_PROJECT_GID }}
+          GITHUB_PROJECT_OWNER: ${{ inputs.github_project_owner || secrets.GITHUB_PROJECT_OWNER }}
+          GITHUB_PROJECT_NUMBER: ${{ inputs.github_project_number || secrets.GITHUB_PROJECT_NUMBER }}
+          GITHUB_REPO: ${{ steps.mode.outputs.dispatch_repo || inputs.github_repo || secrets.GITHUB_REPO || github.repository }}
+          GITHUB_ISSUE_NUMBER: ${{ steps.mode.outputs.issue_number }}
+          GITHUB_PROJECT_STATUS: ${{ steps.mode.outputs.dispatch_status }}
+          DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
+          SYNC_ALL: ${{ steps.mode.outputs.sync_all }}
+          COLUMNS_ONLY: ${{ steps.mode.outputs.columns_only }}
+        run: |
+          missing=0
+          if [ -z "$ASANA_TOKEN" ]; then
+            echo "::error::ASANA_TOKEN is required (repository secret or workflow_dispatch input)"
+            missing=1
+          fi
+          if [ -z "$GITHUB_TOKEN" ]; then
+            echo "::error::GitHub PAT is required (ASANA_SYNC_GITHUB_TOKEN secret or github_pat input)"
+            missing=1
+          fi
+          if [ -z "$ASANA_PROJECT_GID" ]; then
+            echo "::error::ASANA_PROJECT_GID is required (repository secret or workflow_dispatch input)"
+            missing=1
+          fi
+          if [ "$SYNC_ALL" = "true" ]; then
+            if [ -z "$GITHUB_PROJECT_OWNER" ] || [ -z "$GITHUB_PROJECT_NUMBER" ]; then
+              echo "::error::Column/board sync requires GITHUB_PROJECT_OWNER and GITHUB_PROJECT_NUMBER"
+              missing=1
+            fi
+          elif [ -z "$GITHUB_ISSUE_NUMBER" ]; then
+            echo "::error::Could not determine issue/PR number"
+            missing=1
+          fi
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+
+          args=()
+          if [ "$SYNC_ALL" = "true" ]; then
+            args+=(--all-project-items)
+            echo "Reconciling all project items on ${GITHUB_PROJECT_OWNER}/#${GITHUB_PROJECT_NUMBER}"
+          else
+            args+=(--issue "$GITHUB_ISSUE_NUMBER")
+            echo "Syncing ${GITHUB_REPO}#${GITHUB_ISSUE_NUMBER} → Asana"
+          fi
+          if [ "$COLUMNS_ONLY" = "true" ]; then
+            args+=(--columns-only)
+            echo "Mode: columns-only (Status → Asana section)"
+          fi
+          uv run G2A "${args[@]}"
