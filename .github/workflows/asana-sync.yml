@@ -1,0 +1,95 @@
+name: Asana sync
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+    inputs:
+      asana_token:
+        description: "Asana PAT "
+        required: false
+        type: string
+      github_pat:
+        description: "GitHub PAT with repo/project scopes "
+        required: false
+        type: string
+      asana_project_gid:
+        description: "Asana project GID "
+        required: false
+        type: string
+      github_project_owner:
+        description: "GitHub Projects v2 owner "
+        required: false
+        type: string
+      github_project_number:
+        description: "GitHub Projects v2 number "
+        required: false
+        type: string
+      github_repo:
+        description: "Target repo as owner/repo for real issues "
+        required: false
+        type: string
+      dry_run:
+        description: "Preview without creating anything"
+        required: false
+        type: boolean
+        default: false
+      sync_completed:
+        description: "Also sync completed Asana tasks"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+          python-version-file: ".python-version"
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Sync Asana → GitHub
+        env:
+          # Prefer workflow_dispatch inputs (stopgap), then repository secrets.
+          # ASANA_SYNC_GITHUB_TOKEN is used because the built-in GITHUB_TOKEN name is reserved.
+          ASANA_TOKEN: ${{ inputs.asana_token || secrets.ASANA_TOKEN }}
+          GITHUB_TOKEN: ${{ inputs.github_pat || secrets.ASANA_SYNC_GITHUB_TOKEN }}
+          ASANA_PROJECT_GID: ${{ inputs.asana_project_gid || secrets.ASANA_PROJECT_GID }}
+          GITHUB_PROJECT_OWNER: ${{ inputs.github_project_owner || secrets.GITHUB_PROJECT_OWNER }}
+          GITHUB_PROJECT_NUMBER: ${{ inputs.github_project_number || secrets.GITHUB_PROJECT_NUMBER }}
+          GITHUB_REPO: ${{ inputs.github_repo || secrets.GITHUB_REPO }}
+          DRY_RUN: ${{ inputs.dry_run && 'true' || 'false' }}
+          SYNC_COMPLETED: ${{ inputs.sync_completed && 'true' || 'false' }}
+        run: |
+          missing=0
+          if [ -z "$ASANA_TOKEN" ]; then
+            echo "::error::ASANA_TOKEN is required (repository secret or workflow_dispatch input)"
+            missing=1
+          fi
+          if [ -z "$GITHUB_TOKEN" ]; then
+            echo "::error::GitHub PAT is required (ASANA_SYNC_GITHUB_TOKEN secret or github_pat input)"
+            missing=1
+          fi
+          if [ -z "$ASANA_PROJECT_GID" ]; then
+            echo "::error::ASANA_PROJECT_GID is required (repository secret or workflow_dispatch input)"
+            missing=1
+          fi
+          if [ -z "$GITHUB_REPO" ] && { [ -z "$GITHUB_PROJECT_OWNER" ] || [ -z "$GITHUB_PROJECT_NUMBER" ]; }; then
+            echo "::error::Configure GITHUB_PROJECT_OWNER + GITHUB_PROJECT_NUMBER and/or GITHUB_REPO"
+            missing=1
+          fi
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+          uv run A2G
