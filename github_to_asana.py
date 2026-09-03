@@ -52,15 +52,13 @@ Optional:
 from __future__ import annotations
 
 import argparse
-import os
 import re
 import sys
 import time
 
 import requests
-from dotenv import load_dotenv
 
-load_dotenv()
+from config import config
 
 ASANA_BASE = "https://app.asana.com/api/1.0"
 GITHUB_API = "https://api.github.com"
@@ -80,13 +78,6 @@ FIELD_ISSUE_TYPE = "Issue Type"
 FIELD_PRIORITY = "Priority"
 FIELD_STORY_POINTS = "Story Points"
 STATUS_FIELD_NAME = "Status"
-
-
-def env(name, default=None, required=False):
-    val = os.environ.get(name, default)
-    if required and not val:
-        sys.exit(f"Missing required environment variable: {name}")
-    return val
 
 
 def _asana_headers(token):
@@ -491,7 +482,7 @@ def resolve_asana_task(asana_token, project_gid, issue, fields_by_name, *, works
         return from_marker, "issue body marker"
 
     github_field = fields_by_name.get(DEFAULT_GITHUB_ISSUE_FIELD_NAME)
-    field_gid = env("ASANA_GITHUB_ISSUE_FIELD_GID") or (github_field or {}).get("gid")
+    field_gid = config.asana_github_issue_field_gid or (github_field or {}).get("gid")
     if not field_gid:
         return None, None
 
@@ -515,7 +506,7 @@ def resolve_asana_task(asana_token, project_gid, issue, fields_by_name, *, works
 
 def resolve_status_name(gh_token, repo, issue, project_owner, project_number):
     """Prefer explicit env override, else look up Projects v2 Status."""
-    override = env("GITHUB_PROJECT_STATUS")
+    override = config.github_project_status
     if override:
         return override
 
@@ -653,21 +644,21 @@ def parse_args(argv=None):
 
 def main(argv=None):
     args = parse_args(argv)
-    columns_only = args.columns_only or env("COLUMNS_ONLY", "false").lower() == "true"
-    all_items = args.all_project_items or env("SYNC_ALL_PROJECT_ITEMS", "false").lower() == "true"
+    columns_only = args.columns_only or config.columns_only
+    all_items = args.all_project_items or config.sync_all_project_items
 
-    asana_token = env("ASANA_TOKEN", required=True)
-    asana_project_gid = env("ASANA_PROJECT_GID", required=True)
-    gh_token = env("GITHUB_TOKEN", required=True)
-    dry_run = env("DRY_RUN", "false").lower() == "true"
+    asana_token = config.asana_token
+    asana_project_gid = config.asana_project_gid
+    gh_token = config.github_token
+    dry_run = config.dry_run
 
-    project_owner = env("GITHUB_PROJECT_OWNER")
-    project_number = env("GITHUB_PROJECT_NUMBER")
+    project_owner = config.github_project_owner
+    project_number = config.github_project_number
 
     settings = asana_custom_field_settings(asana_token, asana_project_gid)
     fields_by_name = index_custom_fields(settings)
     github_field = fields_by_name.get(DEFAULT_GITHUB_ISSUE_FIELD_NAME)
-    github_issue_field_gid = env("ASANA_GITHUB_ISSUE_FIELD_GID") or (github_field or {}).get("gid")
+    github_issue_field_gid = config.asana_github_issue_field_gid or (github_field or {}).get("gid")
 
     asana_project = asana_get_project(asana_token, asana_project_gid)
     workspace_gid = (asana_project.get("workspace") or {}).get("gid")
@@ -743,14 +734,13 @@ def main(argv=None):
         print(f"\nDone. synced={synced}, skipped={skipped}, failed={failed}.")
         return
 
-    issue_number = args.issue_flag or args.issue or env("GITHUB_ISSUE_NUMBER")
+    issue_number = args.issue_flag or args.issue or config.github_issue_number
     if not issue_number:
         sys.exit("Provide an issue number: uv run G2A <number> (or set GITHUB_ISSUE_NUMBER / use --all-project-items)")
-    issue_number = int(issue_number)
 
-    repo = env("GITHUB_REPO", required=True)
-    if "/" not in repo:
-        sys.exit(f'GITHUB_REPO must be "owner/repo", got: {repo!r}')
+    repo = config.github_repo
+    if not repo:
+        sys.exit("Missing required environment variable: GITHUB_REPO")
 
     print(f"Fetching {repo}#{issue_number}...")
     try:
