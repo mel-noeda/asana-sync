@@ -2,7 +2,7 @@
 
 Two-way sync between Asana and GitHub:
 
-- **A2G** — pull Asana tasks into GitHub (Projects draft issues and/or repository issues)
+- **A2G** — pull Asana tasks into GitHub repository issues (a Projects board is optional)
 - **G2A** — push a GitHub issue or pull request into its linked Asana task, including the board column
 
 Use this repository as a GitHub Action. Other repositories add a short workflow and secrets. They do not copy Python scripts.
@@ -19,22 +19,28 @@ Copy-paste starters live in [`examples/`](examples/).
 
 ### Secrets
 
+Store tokens as secrets only. Do not pass them as `workflow_dispatch` inputs — those values appear in the workflow run UI.
+
 | Secret | Purpose |
 | --- | --- |
 | `ASANA_TOKEN` | Asana personal access token |
-| `ASANA_SYNC_GITHUB_TOKEN` | GitHub PAT with `repo` and/or `project` scopes |
-| `ASANA_PROJECT_GID` | Asana project GID |
-| `GITHUB_PROJECT_OWNER` | Projects v2 owner (org or user) |
-| `GITHUB_PROJECT_NUMBER` | Projects v2 number |
-| `GITHUB_REPO` | `owner/repo` for real issues (optional when the workflow sets `github_repo`) |
+| `GH_TOKEN` | GitHub PAT — required for another repository or GitHub Projects |
 
-Store tokens as secrets only. Do not pass them as `workflow_dispatch` inputs — those values appear in the workflow run UI.
+You do not need `GH_TOKEN` when A2G writes issues only in this repository and you omit GitHub Projects. The action then uses the built-in job token. Grant `issues: write` on that workflow.
 
-The built-in job token is named `GITHUB_TOKEN` and is reserved. It also lacks the Projects access these jobs need. Create a PAT and store it as `ASANA_SYNC_GITHUB_TOKEN`.
+The built-in job token is named `GITHUB_TOKEN` and is reserved, so the PAT secret is `GH_TOKEN`.
+
+Pass Asana project GIDs and destination repos as `with:` inputs. These optional secrets are fallbacks when a workflow omits the matching input:
+
+- `ASANA_PROJECT_GID`
+- `GITHUB_REPO`
+- `GITHUB_PROJECT_OWNER` and `GITHUB_PROJECT_NUMBER` (optional Projects v2 link)
 
 Token scopes and local setup are in [USAGE.md](USAGE.md).
 
 ### Asana → GitHub
+
+Run one A2G invocation per Asana project. Each row creates issues in the configured GitHub repo when the task sits in the named Asana section (default example: `In Progress`). GitHub Projects is optional.
 
 ```yaml
 # .github/workflows/asana-to-github.yml
@@ -44,19 +50,25 @@ on:
     - cron: "0 * * * *"
   workflow_dispatch:
 jobs:
-  sync:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: mel-noeda/asana-sync@v1
-        with:
-          mode: a2g
-          asana_token: ${{ secrets.ASANA_TOKEN }}
-          github_token: ${{ secrets.ASANA_SYNC_GITHUB_TOKEN }}
-          asana_project_gid: ${{ secrets.ASANA_PROJECT_GID }}
-          github_repo: ${{ github.repository }}
-          github_project_owner: ${{ secrets.GITHUB_PROJECT_OWNER }}
-          github_project_number: ${{ secrets.GITHUB_PROJECT_NUMBER }}
+  import:
+    strategy:
+      matrix:
+        include:
+          - asana_project_gid: "111"
+          - asana_project_gid: "222"
+          - asana_project_gid: "333"
+            github_repo: org/other
+    uses: mel-noeda/asana-sync/.github/workflows/reusable-asana-to-github.yml@v1
+    secrets: inherit
+    with:
+      asana_project_gid: ${{ matrix.asana_project_gid }}
+      github_repo: ${{ matrix.github_repo || github.repository }}
+      asana_section: In Progress
 ```
+
+Rows that target this repository do not need `GH_TOKEN`. A row whose `github_repo` is another repository does.
+
+To call the composite action from a single job instead, see [`examples/asana-to-github.yml`](examples/asana-to-github.yml). To match a custom field instead of a board section, set `asana_status_field` (for example `Status`) and keep `asana_section` as the value to match.
 
 ### GitHub → Asana
 
@@ -105,11 +117,13 @@ gh api repos/<owner>/<repo>/dispatches \
 | --- | --- | --- |
 | `mode` | yes | `a2g` or `g2a` |
 | `asana_token` | yes | From `ASANA_TOKEN` |
-| `github_token` | yes | From `ASANA_SYNC_GITHUB_TOKEN` |
-| `asana_project_gid` | yes | From `ASANA_PROJECT_GID` |
-| `github_project_owner` | for project / column sync | Projects v2 owner |
-| `github_project_number` | for project / column sync | Projects v2 number |
-| `github_repo` | for repo issues and G2A single-item | `owner/repo` |
+| `github_token` | for another repo or Projects | From secret `GH_TOKEN`. Omit when the target is this repository and Projects is unset |
+| `asana_project_gid` | yes | Asana project GID (input, not a secret) |
+| `github_repo` | for repo issues and G2A single-item | Destination `owner/repo` |
+| `asana_section` | no | A2G: only import tasks in this section (comma-separated) |
+| `asana_status_field` | no | A2G: match `asana_section` against this custom field |
+| `github_project_owner` | for optional project / column sync | Projects v2 owner |
+| `github_project_number` | for optional project / column sync | Projects v2 number |
 | `dry_run` | no | Preview without writing |
 | `sync_completed` | no | A2G also pulls completed Asana tasks |
 | `default_labels` | no | Comma-separated labels for A2G repo issues |
@@ -155,9 +169,11 @@ The tools link items with:
 
 Status names match Asana sections flexibly — for example `Ready` → `Ready / Sprint`.
 
-**Project mode** (A2G default): set `GITHUB_PROJECT_OWNER` and `GITHUB_PROJECT_NUMBER`. Creates draft issues on the board.
+**Repo mode** (the usual A2G destination): set `github_repo` / `GITHUB_REPO` as `owner/repo`. The sync writes the GitHub issue number into Asana's `GitHub Issue #` field and attaches the issue URL. You can still set the project inputs to link those issues onto a board.
 
-**Repo mode**: set `GITHUB_REPO=owner/repo` to create real issues. You can still set the project variables to link those issues onto a board. In this mode the sync writes the GitHub issue number into Asana's `GitHub Issue #` field and attaches the issue URL.
+**Project-only mode**: omit the repo and set `github_project_owner` plus `github_project_number`. Creates draft issues on the board.
+
+A2G does not close or delete a GitHub issue when the Asana task later leaves the gated section.
 
 ## Run locally
 

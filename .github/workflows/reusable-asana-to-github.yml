@@ -3,8 +3,33 @@ name: Reusable Asana → GitHub
 on:
   workflow_call:
     inputs:
+      asana_project_gid:
+        description: Asana project GID (falls back to secret ASANA_PROJECT_GID)
+        type: string
+        required: false
+        default: ""
       github_repo:
         description: Target repository as owner/repo
+        type: string
+        required: false
+        default: ""
+      asana_section:
+        description: Only import tasks in this Asana section (comma-separated)
+        type: string
+        required: false
+        default: ""
+      asana_status_field:
+        description: Match asana_section against this custom field instead of a board section
+        type: string
+        required: false
+        default: ""
+      github_project_owner:
+        description: Projects v2 owner (optional extra link)
+        type: string
+        required: false
+        default: ""
+      github_project_number:
+        description: Projects v2 number (optional extra link)
         type: string
         required: false
         default: ""
@@ -21,10 +46,10 @@ on:
     secrets:
       ASANA_TOKEN:
         required: true
-      ASANA_SYNC_GITHUB_TOKEN:
-        required: true
+      GH_TOKEN:
+        required: false
       ASANA_PROJECT_GID:
-        required: true
+        required: false
       GITHUB_PROJECT_OWNER:
         required: false
       GITHUB_PROJECT_NUMBER:
@@ -34,6 +59,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   sync:
@@ -50,10 +76,12 @@ jobs:
         with:
           mode: a2g
           asana_token: ${{ secrets.ASANA_TOKEN }}
-          github_token: ${{ secrets.ASANA_SYNC_GITHUB_TOKEN }}
-          asana_project_gid: ${{ secrets.ASANA_PROJECT_GID }}
-          github_project_owner: ${{ secrets.GITHUB_PROJECT_OWNER }}
-          github_project_number: ${{ secrets.GITHUB_PROJECT_NUMBER }}
+          github_token: ${{ secrets.GH_TOKEN }}
+          asana_project_gid: ${{ inputs.asana_project_gid || secrets.ASANA_PROJECT_GID }}
+          github_project_owner: ${{ inputs.github_project_owner || secrets.GITHUB_PROJECT_OWNER }}
+          github_project_number: ${{ inputs.github_project_number || secrets.GITHUB_PROJECT_NUMBER }}
           github_repo: ${{ inputs.github_repo || secrets.GITHUB_REPO }}
+          asana_section: ${{ inputs.asana_section }}
+          asana_status_field: ${{ inputs.asana_status_field }}
           dry_run: ${{ inputs.dry_run }}
           sync_completed: ${{ inputs.sync_completed }}

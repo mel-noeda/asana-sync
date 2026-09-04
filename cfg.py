@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import logging
 import os
 import sys
 from functools import cached_property
@@ -56,7 +55,33 @@ class Config:
 
     @cached_property
     def github_token(self) -> str:
-        return _require("GITHUB_TOKEN")
+        token = _get("GITHUB_TOKEN") or _get("GH_TOKEN")
+        if not token:
+            sys.exit("Missing GitHub token. Set GITHUB_TOKEN locally, or secret GH_TOKEN in Actions.")
+        return token
+
+    def require_github_token(self, repo: str | None = None) -> str:
+        """
+        Return a GitHub token, or exit if the Actions job token cannot serve this run.
+
+        The built-in job token can read and write issues in this repository
+        (`GITHUB_REPOSITORY`). Secret `GH_TOKEN` (a PAT) is required when the
+        target repo is different, or when GitHub Projects is configured.
+        """
+        token = self.github_token
+        current = _get("GITHUB_REPOSITORY")
+        using_builtin = bool(current) and not _get("GH_TOKEN")
+        if not using_builtin:
+            return token
+        if self.github_project_owner and self.github_project_number:
+            sys.exit(
+                "GitHub Projects requires a PAT. Set secret GH_TOKEN "
+                "(the built-in GITHUB_TOKEN cannot access Projects v2)."
+            )
+        target = repo or current
+        if (target or "").casefold() != current.casefold():
+            sys.exit(f"Target repository {target!r} is not this Actions repository ({current}). Set secret GH_TOKEN.")
+        return token
 
     @cached_property
     def github_repo(self) -> str | None:
@@ -80,6 +105,14 @@ class Config:
     @cached_property
     def sync_completed(self) -> bool:
         return _bool("SYNC_COMPLETED")
+
+    @cached_property
+    def asana_section(self) -> str | None:
+        return _get("ASANA_SECTION")
+
+    @cached_property
+    def asana_status_field(self) -> str | None:
+        return _get("ASANA_STATUS_FIELD")
 
     @cached_property
     def dry_run(self) -> bool:
@@ -109,5 +142,6 @@ class Config:
     @cached_property
     def log_level(self) -> str:
         return (_get("LOG_LEVEL") or "INFO").upper()
+
 
 cfg = Config()

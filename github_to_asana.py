@@ -58,6 +58,7 @@ import time
 
 import requests
 
+from asana_columns import match_asana_section, normalize_column_key
 from config import config
 
 ASANA_BASE = "https://app.asana.com/api/1.0"
@@ -103,10 +104,6 @@ def _http_error_detail(exc: requests.HTTPError) -> str:
         if message:
             detail = f"{exc} ({message})"
     return detail
-
-
-def normalize_column_key(name: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "", (name or "").casefold())
 
 
 # ----------------------------- GitHub -------------------------------------- #
@@ -354,28 +351,6 @@ def index_custom_fields(settings):
             "options": options,
         }
     return by_name
-
-
-def match_asana_section(status_name, sections):
-    """Map a GitHub Status name to an Asana section via normalized / fuzzy match."""
-    if not status_name:
-        return None
-    key = normalize_column_key(status_name)
-    if not key:
-        return None
-
-    indexed = []
-    for section in sections:
-        name = section.get("name") or ""
-        indexed.append((normalize_column_key(name), section))
-
-    for sk, section in indexed:
-        if sk == key:
-            return section
-    for sk, section in indexed:
-        if key in sk or sk in key:
-            return section
-    return None
 
 
 def asana_find_task_by_issue_number(token, workspace_gid, project_gid, field_gid, issue_number):
@@ -649,7 +624,7 @@ def main(argv=None):
 
     asana_token = config.asana_token
     asana_project_gid = config.asana_project_gid
-    gh_token = config.github_token
+    gh_token = config.require_github_token(config.github_repo)
     dry_run = config.dry_run
 
     project_owner = config.github_project_owner

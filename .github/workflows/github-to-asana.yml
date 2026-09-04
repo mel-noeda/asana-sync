@@ -127,7 +127,7 @@ jobs:
         with:
           mode: g2a
           asana_token: ${{ secrets.ASANA_TOKEN }}
-          github_token: ${{ secrets.ASANA_SYNC_GITHUB_TOKEN }}
+          github_token: ${{ secrets.GH_TOKEN }}
           asana_project_gid: ${{ inputs.asana_project_gid || secrets.ASANA_PROJECT_GID }}
           github_project_owner: ${{ inputs.github_project_owner || secrets.GITHUB_PROJECT_OWNER }}
           github_project_number: ${{ inputs.github_project_number || secrets.GITHUB_PROJECT_NUMBER }}

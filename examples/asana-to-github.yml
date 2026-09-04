@@ -1,5 +1,7 @@
 # Copy to .github/workflows/asana-to-github.yml in the consuming repository.
-# Requires the secrets listed in README.md.
+# This example writes issues in this repository and omits GitHub Projects, so
+# the built-in job token is enough (grant issues: write). Pass GH_TOKEN when
+# the target repo is different or you link a Projects board.
 
 name: Asana → GitHub
 
@@ -10,6 +12,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   sync:
@@ -19,8 +22,6 @@ jobs:
         with:
           mode: a2g
           asana_token: ${{ secrets.ASANA_TOKEN }}
-          github_token: ${{ secrets.ASANA_SYNC_GITHUB_TOKEN }}
-          asana_project_gid: ${{ secrets.ASANA_PROJECT_GID }}
+          asana_project_gid: "111"
           github_repo: ${{ github.repository }}
-          github_project_owner: ${{ secrets.GITHUB_PROJECT_OWNER }}
-          github_project_number: ${{ secrets.GITHUB_PROJECT_NUMBER }}
+          asana_section: In Progress

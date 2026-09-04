@@ -2,20 +2,21 @@
 """
 asana_to_github.py
 
-Pull tasks from an Asana project and create corresponding GitHub Project items
-(or optional repository issues).
+Pull tasks from one Asana project and create GitHub repository issues
+(or optional Projects draft issues).
 
 Key properties:
 - Idempotent: each item body carries a hidden marker with the Asana task GID.
   On re-run, tasks that already have an item are skipped, so you can run this
   repeatedly (cron, CI, manually) without creating duplicates.
-- Default: create draft issues directly on a GitHub Projects (v2) board
-  (no repository required).
-- Optional: create real issues in a GitHub repository instead (and optionally
-  also link them onto a Projects v2 board).
+- Default destination: real issues in GITHUB_REPO. A Projects v2 board is an
+  optional extra link.
+- Optional: create draft issues on a Projects v2 board when no repo is set.
 - When using GITHUB_REPO: write the GitHub issue number back to Asana's
   "GitHub Issue #" custom field and attach the issue URL on the task.
   Already-synced tasks are reconciled on every run.
+- Optional import gate: only create issues for tasks in named Asana sections,
+  or whose custom field matches those names.
 
 Setup:
     uv sync
@@ -24,33 +25,44 @@ Required environment variables:
     ASANA_TOKEN             Asana personal access token
     ASANA_PROJECT_GID       The project GID to pull tasks from
                             (the number in the project URL: .../0/<GID>/list)
+                            CLI: --project-gid
     GITHUB_TOKEN            GitHub PAT with `project` scope (add `repo` if using
                             GITHUB_REPO below)
 
 Target (one of):
+    GITHUB_REPO             Target repo as "owner/repo" (creates real issues)
+                            CLI: --repo
+  or:
     GITHUB_PROJECT_OWNER    Org or user login that owns the Projects v2 board
     GITHUB_PROJECT_NUMBER   The project number (the integer in the project URL)
-  or:
-    GITHUB_REPO             Target repo as "owner/repo" (creates real issues)
 
 Optional environment variables:
+    ASANA_SECTION           Only import tasks in these Asana sections
+                            (comma-separated). CLI: --section
+    ASANA_STATUS_FIELD      Match ASANA_SECTION against this custom field
+                            instead of a board section. CLI: --status-field
     ASANA_GITHUB_ISSUE_FIELD_GID
                             Custom field GID for "GitHub Issue #". If unset, the
                             field is resolved by name on the Asana project.
     SYNC_COMPLETED          "true" to also sync completed tasks (default: skip them)
+                            CLI: --sync-completed
     DEFAULT_LABELS          Comma-separated labels for repo issues only
     DRY_RUN                 "true" to preview without creating anything
+                            CLI: --dry-run
 
 Usage:
-    uv run A2G
+    uv run A2G --repo owner/repo --section "In Progress"
+    uv run A2G --section "In Progress" --status-field Status
 """
 
+import argparse
 import re
 import sys
 import time
 
 import requests
 
+from asana_columns import match_named_value, parse_section_names, resolve_sections
 from cfg import cfg
 from log import configure_logging, get_logger
 
@@ -64,39 +76,75 @@ GITHUB_GRAPHQL = "https://api.github.com/graphql"
 MARKER_TEMPLATE = "<!-- asana-task-gid:{gid} -->"
 MARKER_RE = re.compile(r"<!-- asana-task-gid:(\d+) -->")
 DEFAULT_GITHUB_ISSUE_FIELD_NAME = "GitHub Issue #"
+TASK_OPT_FIELDS = (
+    "name,notes,completed,permalink_url,assignee.name,due_on,"
+    "custom_fields,custom_fields.name,custom_fields.gid,"
+    "custom_fields.text_value,custom_fields.display_value"
+)
 
 
 def _asana_headers(token):
     return {"Authorization": f"Bearer {token}"}
 
 
-# ----------------------------- Asana --------------------------------------- #
-
-
-def asana_get_tasks(token, project_gid):
-    """Yield every task in a project, following pagination."""
+def _asana_paginated_tasks(token, url):
+    """Yield tasks from an Asana collection URL, following pagination."""
     headers = _asana_headers(token)
-    params = {
-        "opt_fields": (
-            "name,notes,completed,permalink_url,assignee.name,due_on,"
-            "custom_fields,custom_fields.name,custom_fields.gid,"
-            "custom_fields.text_value,custom_fields.display_value"
-        ),
-        "limit": 100,
-    }
-    url = f"{ASANA_BASE}/projects/{project_gid}/tasks"
+    params = {"opt_fields": TASK_OPT_FIELDS, "limit": 100}
     while url:
         resp = requests.get(url, headers=headers, params=params, timeout=30)
         resp.raise_for_status()
         payload = resp.json()
         yield from payload.get("data", [])
-        # next_page.uri is a fully-formed URL that already carries the params
         next_page = payload.get("next_page")
         if next_page and next_page.get("uri"):
             url = next_page["uri"]
             params = None
         else:
             url = None
+
+
+def asana_get_tasks(token, project_gid):
+    """Yield every task in a project, following pagination."""
+    yield from _asana_paginated_tasks(token, f"{ASANA_BASE}/projects/{project_gid}/tasks")
+
+
+def asana_list_sections(token, project_gid):
+    """Return sections (columns) for an Asana project."""
+    resp = requests.get(
+        f"{ASANA_BASE}/projects/{project_gid}/sections",
+        headers=_asana_headers(token),
+        params={"opt_fields": "name,gid"},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json().get("data", [])
+
+
+def asana_get_section_tasks(token, section_gid):
+    """Yield every task in an Asana section, following pagination."""
+    yield from _asana_paginated_tasks(token, f"{ASANA_BASE}/sections/{section_gid}/tasks")
+
+
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(description="Pull Asana tasks into GitHub issues or Projects.")
+    parser.add_argument(
+        "--section",
+        help="Only import tasks in this Asana section (comma-separated). Env: ASANA_SECTION",
+    )
+    parser.add_argument(
+        "--status-field",
+        help="Match --section against this custom field instead of a board section. Env: ASANA_STATUS_FIELD",
+    )
+    parser.add_argument("--repo", help="Target repository as owner/repo. Env: GITHUB_REPO")
+    parser.add_argument("--project-gid", help="Asana project GID. Env: ASANA_PROJECT_GID")
+    parser.add_argument("--dry-run", action="store_true", help="Preview without writing. Env: DRY_RUN")
+    parser.add_argument(
+        "--sync-completed",
+        action="store_true",
+        help="Also import completed Asana tasks. Env: SYNC_COMPLETED",
+    )
+    return parser.parse_args(argv)
 
 
 def asana_find_custom_field_gid(token, project_gid, field_name=DEFAULT_GITHUB_ISSUE_FIELD_NAME):
@@ -424,14 +472,13 @@ def _check_github_project(token: str, owner: str, number: int, login: str) -> tu
     ]
 
 
-def validate_environment() -> str | None:
+def validate_environment(repo: str | None, project_gid: str) -> str | None:
     """
     Confirm ASANA_TOKEN and GITHUB_TOKEN can access the configured projects.
 
     Exits with a combined error if any check fails. Returns the GitHub Projects v2
     node id when a board is configured, otherwise None.
     """
-    repo = cfg.github_repo
     project_owner = cfg.github_project_owner
     project_number = cfg.github_project_number
     if not repo and not (project_owner and project_number):
@@ -440,19 +487,21 @@ def validate_environment() -> str | None:
             "(project draft issues), and/or GITHUB_REPO (repository issues)."
         )
 
-    errors: list[str] = []
-    errors.extend(_check_asana_access(cfg.asana_token, cfg.asana_project_gid))
+    gh_token = cfg.require_github_token(repo)
 
-    login, token_errors = _check_github_token(cfg.github_token)
+    errors: list[str] = []
+    errors.extend(_check_asana_access(cfg.asana_token, project_gid))
+
+    login, token_errors = _check_github_token(gh_token)
     errors.extend(token_errors)
 
     project_node_id = None
     if login:
         if repo:
-            errors.extend(_check_github_repo(cfg.github_token, repo, login))
+            errors.extend(_check_github_repo(gh_token, repo, login))
         if project_owner and project_number:
             project_node_id, project_errors = _check_github_project(
-                cfg.github_token, project_owner, project_number, login
+                gh_token, project_owner, project_number, login
             )
             errors.extend(project_errors)
 
@@ -593,6 +642,29 @@ def add_issue_to_project(token, project_id, issue_node_id):
 # ------------------------------- Glue -------------------------------------- #
 
 
+def iter_import_tasks(token, project_gid, wanted_names, status_field):
+    """Yield tasks that pass the section gate, or every project task if ungated."""
+    if not wanted_names or status_field:
+        yield from asana_get_tasks(token, project_gid)
+        return
+
+    sections = asana_list_sections(token, project_gid)
+    resolved, missing = resolve_sections(wanted_names, sections)
+    if missing:
+        available = ", ".join(repr(section.get("name")) for section in sections) or "(none)"
+        sys.exit(f"No Asana section matched {missing!r}. Sections on this project: {available}")
+
+    seen: set[str] = set()
+    for section in resolved:
+        logger.info(f"Importing from section {section['name']!r} ({section['gid']}).")
+        for task in asana_get_section_tasks(token, section["gid"]):
+            gid = task["gid"]
+            if gid in seen:
+                continue
+            seen.add(gid)
+            yield task
+
+
 def build_body(task):
     parts = []
     notes = (task.get("notes") or "").strip()
@@ -614,20 +686,41 @@ def build_body(task):
     return "\n\n".join(parts)
 
 
-def main():
+def main(argv=None):
+    args = parse_args(argv)
     logger.info(f"Starting with log level {cfg.log_level}.")
     asana_token = cfg.asana_token
-    project_gid = cfg.asana_project_gid
+    project_gid = args.project_gid or cfg.asana_project_gid
     gh_token = cfg.github_token
 
-    repo = cfg.github_repo
+    repo = args.repo or cfg.github_repo
+    if repo and "/" not in repo:
+        sys.exit(f'GITHUB_REPO must be "owner/repo", got: {repo!r}')
+
     project_owner = cfg.github_project_owner
     project_number = cfg.github_project_number
-    project_node_id = validate_environment()
+    project_node_id = validate_environment(repo, project_gid)
 
-    sync_completed = cfg.sync_completed
-    dry_run = cfg.dry_run
+    sync_completed = args.sync_completed or cfg.sync_completed
+    dry_run = args.dry_run or cfg.dry_run
     labels = cfg.default_labels
+    section_raw = args.section or cfg.asana_section
+    status_field = args.status_field or cfg.asana_status_field
+    wanted_names = parse_section_names(section_raw)
+
+    if status_field and not wanted_names:
+        sys.exit("--status-field requires --section (or ASANA_SECTION) with the value to match")
+
+    status_field_gid = None
+    if status_field:
+        status_field_gid = asana_find_custom_field_gid(asana_token, project_gid, status_field)
+        if not status_field_gid:
+            sys.exit(f"Asana custom field {status_field!r} was not found on project {project_gid}")
+        logger.info(f"Import gate: custom field {status_field!r} in {wanted_names}")
+    elif wanted_names:
+        logger.info(f"Import gate: Asana section(s) {wanted_names}")
+    else:
+        logger.info("Import gate: none (all incomplete tasks)")
 
     # Project-only mode (no repo): create draft issues on the board.
     # Repo mode: create real issues; project board is an optional extra link.
@@ -668,7 +761,7 @@ def main():
     logger.info(f"Found {len(existing_issues) or len(existing_draft_gids)} already-synced task(s).")
 
     created = skipped = linked = 0
-    for task in asana_get_tasks(asana_token, project_gid):
+    for task in iter_import_tasks(asana_token, project_gid, wanted_names, status_field):
         gid = task["gid"]
         name = task.get("name") or "(untitled Asana task)"
 
@@ -699,6 +792,10 @@ def main():
                         logger.error(f"  ! failed to link Asana task for '{name}': {detail}")
                 else:
                     logger.info(f"Existing #{issue['number']}: {name} (no Asana field to update)")
+                skipped += 1
+                continue
+
+            if status_field_gid and not match_named_value(task_custom_field_text(task, status_field_gid), wanted_names):
                 skipped += 1
                 continue
 
@@ -743,6 +840,10 @@ def main():
 
         # Project-only mode: draft issues (no GitHub issue number to write back).
         if gid in existing_draft_gids:
+            skipped += 1
+            continue
+
+        if status_field_gid and not match_named_value(task_custom_field_text(task, status_field_gid), wanted_names):
             skipped += 1
             continue
 

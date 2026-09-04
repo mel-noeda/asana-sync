@@ -1,5 +1,7 @@
 # Thinnest consumer workflow: triggers stay here; the job lives in asana-sync.
 # Copy to .github/workflows/asana-to-github.yml in the consuming repository.
+# One matrix row per Asana project. github_repo defaults to this repository.
+# Same-repo rows do not need secret GH_TOKEN. A different github_repo does.
 
 name: Asana → GitHub
 
@@ -12,8 +14,17 @@ permissions:
   contents: read
 
 jobs:
-  sync:
+  import:
+    strategy:
+      matrix:
+        include:
+          - asana_project_gid: "111"
+          - asana_project_gid: "222"
+          - asana_project_gid: "333"
+            github_repo: org/other
     uses: mel-noeda/asana-sync/.github/workflows/reusable-asana-to-github.yml@v1
     secrets: inherit
     with:
-      github_repo: ${{ github.repository }}
+      asana_project_gid: ${{ matrix.asana_project_gid }}
+      github_repo: ${{ matrix.github_repo || github.repository }}
+      asana_section: In Progress

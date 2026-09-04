@@ -27,6 +27,14 @@ on:
         description: "Target repo as owner/repo for real issues"
         required: false
         type: string
+      asana_section:
+        description: "Only import tasks in this Asana section (comma-separated)"
+        required: false
+        type: string
+      asana_status_field:
+        description: "Match asana_section against this custom field instead of a board section"
+        required: false
+        type: string
       dry_run:
         description: "Preview without creating anything"
         required: false
@@ -40,6 +48,7 @@ on:
 
 permissions:
   contents: read
+  issues: write
 
 jobs:
   sync:
@@ -53,10 +62,12 @@ jobs:
         with:
           mode: a2g
           asana_token: ${{ secrets.ASANA_TOKEN }}
-          github_token: ${{ secrets.ASANA_SYNC_GITHUB_TOKEN }}
+          github_token: ${{ secrets.GH_TOKEN }}
           asana_project_gid: ${{ inputs.asana_project_gid || secrets.ASANA_PROJECT_GID }}
           github_project_owner: ${{ inputs.github_project_owner || secrets.GITHUB_PROJECT_OWNER }}
           github_project_number: ${{ inputs.github_project_number || secrets.GITHUB_PROJECT_NUMBER }}
           github_repo: ${{ inputs.github_repo || secrets.GITHUB_REPO }}
+          asana_section: ${{ inputs.asana_section }}
+          asana_status_field: ${{ inputs.asana_status_field }}
           dry_run: ${{ inputs.dry_run }}
           sync_completed: ${{ inputs.sync_completed }}

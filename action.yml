@@ -13,8 +13,9 @@ inputs:
     description: Asana personal access token
     required: true
   github_token:
-    description: GitHub PAT with repo and/or project scopes (not the built-in GITHUB_TOKEN)
-    required: true
+    description: PAT from secret GH_TOKEN. Optional when github_repo is this repository and GitHub Projects is unset
+    required: false
+    default: ""
   asana_project_gid:
     description: Asana project GID
     required: true
@@ -28,6 +29,14 @@ inputs:
     default: ""
   github_repo:
     description: Target repository as owner/repo
+    required: false
+    default: ""
+  asana_section:
+    description: Only import Asana tasks in this section (comma-separated). A2G only
+    required: false
+    default: ""
+  asana_status_field:
+    description: Match asana_section against this custom field instead of a board section. A2G only
     required: false
     default: ""
   dry_run:
@@ -83,11 +92,14 @@ runs:
       working-directory: ${{ github.action_path }}
       env:
         ASANA_TOKEN: ${{ inputs.asana_token }}
-        GITHUB_TOKEN: ${{ inputs.github_token }}
+        GH_TOKEN: ${{ inputs.github_token }}
+        GITHUB_TOKEN: ${{ inputs.github_token || github.token }}
         ASANA_PROJECT_GID: ${{ inputs.asana_project_gid }}
         GITHUB_PROJECT_OWNER: ${{ inputs.github_project_owner }}
         GITHUB_PROJECT_NUMBER: ${{ inputs.github_project_number }}
         GITHUB_REPO: ${{ inputs.github_repo }}
+        ASANA_SECTION: ${{ inputs.asana_section }}
+        ASANA_STATUS_FIELD: ${{ inputs.asana_status_field }}
         DRY_RUN: ${{ inputs.dry_run }}
         SYNC_COMPLETED: ${{ inputs.sync_completed }}
         DEFAULT_LABELS: ${{ inputs.default_labels }}
@@ -111,9 +123,24 @@ runs:
           echo "::error::asana_token is required"
           missing=1
         fi
-        if [ -z "$GITHUB_TOKEN" ]; then
-          echo "::error::github_token is required (use a PAT secret such as ASANA_SYNC_GITHUB_TOKEN)"
-          missing=1
+        current_repo="${GITHUB_REPOSITORY:-}"
+        target_repo="${GITHUB_REPO:-$current_repo}"
+        using_project=false
+        if [ -n "${GITHUB_PROJECT_OWNER:-}" ] && [ -n "${GITHUB_PROJECT_NUMBER:-}" ]; then
+          using_project=true
+        fi
+        if [ -z "${GH_TOKEN}" ]; then
+          current_lc="$(printf '%s' "$current_repo" | tr '[:upper:]' '[:lower:]')"
+          target_lc="$(printf '%s' "$target_repo" | tr '[:upper:]' '[:lower:]')"
+          if [ "$using_project" = "true" ]; then
+            echo "::error::GitHub Projects requires a PAT. Set secret GH_TOKEN."
+            missing=1
+          elif [ -z "$current_repo" ] || [ "$target_lc" != "$current_lc" ]; then
+            echo "::error::Secret GH_TOKEN is required when the target repository is not this repository"
+            missing=1
+          else
+            echo "Using the built-in GITHUB_TOKEN for ${target_repo} (same repository, no Projects board)."
+          fi
         fi
         if [ -z "$ASANA_PROJECT_GID" ]; then
           echo "::error::asana_project_gid is required"
@@ -128,7 +155,26 @@ runs:
           if [ "$missing" -ne 0 ]; then
             exit 1
           fi
-          uv run A2G
+          a2g_args=()
+          if [ -n "${ASANA_SECTION}" ]; then
+            a2g_args+=(--section "$ASANA_SECTION")
+          fi
+          if [ -n "${ASANA_STATUS_FIELD}" ]; then
+            a2g_args+=(--status-field "$ASANA_STATUS_FIELD")
+          fi
+          if [ -n "$GITHUB_REPO" ]; then
+            a2g_args+=(--repo "$GITHUB_REPO")
+          fi
+          if [ -n "$ASANA_PROJECT_GID" ]; then
+            a2g_args+=(--project-gid "$ASANA_PROJECT_GID")
+          fi
+          if [ "$DRY_RUN" = "true" ]; then
+            a2g_args+=(--dry-run)
+          fi
+          if [ "$SYNC_COMPLETED" = "true" ]; then
+            a2g_args+=(--sync-completed)
+          fi
+          uv run A2G "${a2g_args[@]}"
           exit 0
         fi
 

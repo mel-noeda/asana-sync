@@ -2,7 +2,7 @@
 
 This repository exposes two sync commands and a composite GitHub Action:
 
-- **A2G** — pull Asana tasks into GitHub (Projects draft issues or repository issues)
+- **A2G** — pull Asana tasks into GitHub repository issues (a Projects board is optional)
 - **G2A** — push a GitHub issue or pull request into its linked Asana task
 
 To add the action to another repository, follow [README.md](README.md). This page covers tokens, local CLI use, and the workflows that run in *this* repository.
@@ -23,18 +23,20 @@ The Asana user who owns the token must be a member of the target project. A2G wr
 - custom fields
 - project section
 
-The project identifier is `ASANA_PROJECT_GID`: the number in the project URL (`…/0/<GID>/list`).
+The project identifier is `ASANA_PROJECT_GID` (or `--project-gid`): the number in the project URL (`…/0/<GID>/list`). Pass it as a workflow input when you run A2G for more than one Asana project.
 
 ### GitHub personal access token
 
-Create a classic or fine-grained personal access token (PAT). Locally, set it as `GITHUB_TOKEN`. In GitHub Actions, store it as `ASANA_SYNC_GITHUB_TOKEN` — the name `GITHUB_TOKEN` is reserved for the built-in job token, which does not have the Projects access these scripts need.
+Create a classic or fine-grained personal access token (PAT). Locally, set it as `GITHUB_TOKEN` (or `GH_TOKEN`). In GitHub Actions, store the PAT as `GH_TOKEN` — the name `GITHUB_TOKEN` is reserved for the built-in job token.
+
+You can omit `GH_TOKEN` in Actions when the target `github_repo` is this repository and you do not configure GitHub Projects. The action compares `github_repo` to `GITHUB_REPOSITORY` and uses the job token. Grant `issues: write` (A2G) or `issues: read` (G2A) on the workflow. A PAT is required for another repository or for Projects v2.
 
 If the owning organization requires SAML single sign-on (SSO), authorize the PAT for that organization.
 
-**A2G** writes to GitHub (creates project items and, in repo mode, issues). Grant:
+**A2G** writes to GitHub (creates issues, and optionally project items). Grant:
 
-- Classic PAT: `project`. Add `repo` when you set `GITHUB_REPO`.
-- Fine-grained PAT: Projects **Read and write**. For repo mode, also grant the target repository Issues **Read and write**.
+- Classic PAT: `repo`. Add `project` when you also link issues onto a Projects board.
+- Fine-grained PAT: Issues **Read and write** on the target repository. Add Projects **Read and write** when you link a board.
 
 **G2A** only reads GitHub (issue or pull request, plus Projects **Status**). Grant:
 
@@ -52,30 +54,37 @@ If the owning organization requires SAML single sign-on (SSO), authorize the PAT
 Required for both commands:
 
 - `ASANA_TOKEN`
-- `ASANA_PROJECT_GID`
-- `GITHUB_TOKEN`
+- `ASANA_PROJECT_GID` (or A2G `--project-gid`)
+- `GITHUB_TOKEN` (or `GH_TOKEN`)
 
-Target at least one GitHub destination:
+A2G destination:
 
-- Project mode: `GITHUB_PROJECT_OWNER` and `GITHUB_PROJECT_NUMBER`
-- Repo mode: `GITHUB_REPO` as `owner/repo`
+- Repository issues: `GITHUB_REPO` / `--repo` as `owner/repo`
+- Optional Projects link: `GITHUB_PROJECT_OWNER` and `GITHUB_PROJECT_NUMBER`
+- Project-only drafts: omit the repo and set the project variables
 
-You can set both. A2G then creates real issues and also links them onto the board. G2A single-issue mode requires `GITHUB_REPO`. Column sync requires the project variables.
+G2A single-issue mode requires `GITHUB_REPO`. Column sync requires the project variables.
 
 Optional:
 
-- `DRY_RUN=true` — preview without writing
-- `SYNC_COMPLETED=true` — A2G also pulls completed Asana tasks
+- `--section` / `ASANA_SECTION` — A2G only imports tasks in these Asana sections (comma-separated)
+- `--status-field` / `ASANA_STATUS_FIELD` — match `--section` against this custom field instead of a board section
+- `--dry-run` / `DRY_RUN=true` — preview without writing
+- `--sync-completed` / `SYNC_COMPLETED=true` — A2G also pulls completed Asana tasks
 - `DEFAULT_LABELS` — comma-separated labels for A2G repo issues
 - `ASANA_GITHUB_ISSUE_FIELD_GID` — override for the `GitHub Issue #` custom field
 
 ### Asana → GitHub
 
 ```bash
-uv run A2G
+uv run A2G --repo owner/repo --section "In Progress"
+uv run A2G --project-gid 111 --repo owner/repo --section "In Progress"
+uv run A2G --section "In Progress" --status-field Status
 ```
 
-Project mode (default) creates draft issues on the Projects v2 board. Repo mode creates issues in `GITHUB_REPO` and writes the issue number into Asana's `GitHub Issue #` field.
+Each invocation reads one Asana project. Run the command again (or add another workflow job) for a second project. Repo mode creates issues in `--repo` / `GITHUB_REPO` and writes the issue number into Asana's `GitHub Issue #` field.
+
+Omit `--section` to import every incomplete task, as before.
 
 ### GitHub → Asana
 
@@ -103,11 +112,13 @@ Store tokens and config under **Settings → Secrets and variables → Actions**
 | Secret | Purpose |
 | --- | --- |
 | `ASANA_TOKEN` | Asana personal access token |
-| `ASANA_SYNC_GITHUB_TOKEN` | GitHub PAT (mapped to `github_token` on the action) |
-| `ASANA_PROJECT_GID` | Asana project GID |
-| `GITHUB_PROJECT_OWNER` | Projects v2 owner (org or user) |
-| `GITHUB_PROJECT_NUMBER` | Projects v2 number |
-| `GITHUB_REPO` | `owner/repo` for real issues (G2A falls back to the current repository) |
+| `GH_TOKEN` | GitHub PAT (optional when the target is this repository and Projects is unset) |
+
+Optional fallbacks when a run does not pass the matching input:
+
+- `ASANA_PROJECT_GID`
+- `GITHUB_REPO`
+- `GITHUB_PROJECT_OWNER` and `GITHUB_PROJECT_NUMBER`
 
 You can start a run from the GitHub UI (**Actions → the workflow → Run workflow**) or with `gh` as below.
 
@@ -127,13 +138,13 @@ gh workflow run asana-sync.yml \
   -f sync_completed=true
 ```
 
-Override the GitHub destination for one run (secrets still supply the tokens):
+Override the Asana project, destination repo, and import section for one run (secrets still supply the tokens):
 
 ```bash
 gh workflow run asana-sync.yml \
-  -f github_project_owner=my-org \
-  -f github_project_number=1 \
-  -f github_repo=my-org/my-repo
+  -f asana_project_gid=111 \
+  -f github_repo=my-org/my-repo \
+  -f asana_section="In Progress"
 ```
 
 ### GitHub → Asana (`github-to-asana.yml`)
