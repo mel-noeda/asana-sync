@@ -1,15 +1,15 @@
 # Usage
 
-This repository exposes two sync actions:
+This repository exposes two sync commands and a composite GitHub Action:
 
 - **A2G** — pull Asana tasks into GitHub (Projects draft issues or repository issues)
 - **G2A** — push a GitHub issue or pull request into its linked Asana task
 
-You can run them on your machine or through the GitHub Actions workflows in this repo. Both paths need the same Asana and GitHub access tokens.
+To add the action to another repository, follow [README.md](README.md). This page covers tokens, local CLI use, and the workflows that run in *this* repository.
 
 ## Access tokens
 
-Create the tokens once, then store them in a local `.env` file or in repository secrets. Do not commit tokens, and do not pass them as `workflow_dispatch` inputs for recurring runs — those values appear in the workflow run UI.
+Create the tokens once, then store them in a local `.env` file or in repository secrets. Do not commit tokens, and do not pass them as `workflow_dispatch` inputs — those values appear in the workflow run UI.
 
 ### Asana personal access token
 
@@ -49,7 +49,7 @@ If the owning organization requires SAML single sign-on (SSO), authorize the PAT
 2. From the repository root, run `uv sync`.
 3. Put credentials in `.env` (or export them in your shell).
 
-Required for both actions:
+Required for both commands:
 
 - `ASANA_TOKEN`
 - `ASANA_PROJECT_GID`
@@ -94,26 +94,26 @@ uv run G2A --all-project-items --columns-only
 
 G2A finds the Asana task from the `<!-- asana-task-gid:… -->` marker in the issue body, or from a task whose `GitHub Issue #` field matches the issue number.
 
-## Call the GitHub Actions workflows
+## Workflows in this repository
+
+These jobs call the local composite action (`uses: ./`) so this repo dogfoods the same packaging that consumers use.
 
 Store tokens and config under **Settings → Secrets and variables → Actions**:
 
 | Secret | Purpose |
 | --- | --- |
 | `ASANA_TOKEN` | Asana personal access token |
-| `ASANA_SYNC_GITHUB_TOKEN` | GitHub PAT (mapped to `GITHUB_TOKEN` in the job) |
+| `ASANA_SYNC_GITHUB_TOKEN` | GitHub PAT (mapped to `github_token` on the action) |
 | `ASANA_PROJECT_GID` | Asana project GID |
 | `GITHUB_PROJECT_OWNER` | Projects v2 owner (org or user) |
 | `GITHUB_PROJECT_NUMBER` | Projects v2 number |
 | `GITHUB_REPO` | `owner/repo` for real issues (G2A falls back to the current repository) |
 
-You can also start a run from the GitHub UI: **Actions → the workflow → Run workflow**. Prefer the `gh` examples below so the invocation is repeatable.
+You can start a run from the GitHub UI (**Actions → the workflow → Run workflow**) or with `gh` as below.
 
 ### Asana sync (`asana-sync.yml`)
 
-Runs `uv run A2G`. GitHub also starts this workflow on an hourly schedule, on push to `main` or `master`, and on selected issue and pull request events.
-
-Call it with repository secrets already set:
+Runs the action with `mode: a2g`. GitHub also starts this workflow on an hourly schedule, on push to `main` or `master`, and on selected issue and pull request events.
 
 ```bash
 gh workflow run asana-sync.yml
@@ -136,20 +136,9 @@ gh workflow run asana-sync.yml \
   -f github_repo=my-org/my-repo
 ```
 
-When secrets are not yet configured, the workflow accepts these stopgap inputs:
-
-- `asana_token`
-- `github_pat`
-- `asana_project_gid`
-- `github_project_owner`
-- `github_project_number`
-- `github_repo`
-
-Use those only for a one-off test.
-
 ### GitHub → Asana (`github-to-asana.yml`)
 
-Runs `uv run G2A`. GitHub also starts this workflow when an issue or pull request changes, and every two minutes to reconcile board columns. Actions cannot trigger natively on `projects_v2_item`; the schedule is the built-in stopgap for column moves.
+Runs the action with `mode: g2a`. GitHub also starts this workflow when an issue or pull request changes, and every two minutes to reconcile board columns. Actions cannot trigger natively on `projects_v2_item`; the schedule is the built-in stopgap for column moves.
 
 Sync one issue or pull request:
 

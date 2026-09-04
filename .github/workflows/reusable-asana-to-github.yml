@@ -1,0 +1,59 @@
+name: Reusable Asana → GitHub
+
+on:
+  workflow_call:
+    inputs:
+      github_repo:
+        description: Target repository as owner/repo
+        type: string
+        required: false
+        default: ""
+      dry_run:
+        description: Preview without creating anything
+        type: boolean
+        required: false
+        default: false
+      sync_completed:
+        description: Also sync completed Asana tasks
+        type: boolean
+        required: false
+        default: false
+    secrets:
+      ASANA_TOKEN:
+        required: true
+      ASANA_SYNC_GITHUB_TOKEN:
+        required: true
+      ASANA_PROJECT_GID:
+        required: true
+      GITHUB_PROJECT_OWNER:
+        required: false
+      GITHUB_PROJECT_NUMBER:
+        required: false
+      GITHUB_REPO:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout asana-sync
+        uses: actions/checkout@v4
+        with:
+          repository: mel-noeda/asana-sync
+          ref: ${{ github.workflow_sha }}
+
+      - name: Sync Asana → GitHub
+        uses: ./
+        with:
+          mode: a2g
+          asana_token: ${{ secrets.ASANA_TOKEN }}
+          github_token: ${{ secrets.ASANA_SYNC_GITHUB_TOKEN }}
+          asana_project_gid: ${{ secrets.ASANA_PROJECT_GID }}
+          github_project_owner: ${{ secrets.GITHUB_PROJECT_OWNER }}
+          github_project_number: ${{ secrets.GITHUB_PROJECT_NUMBER }}
+          github_repo: ${{ inputs.github_repo || secrets.GITHUB_REPO }}
+          dry_run: ${{ inputs.dry_run }}
+          sync_completed: ${{ inputs.sync_completed }}

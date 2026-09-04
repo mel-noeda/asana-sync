@@ -1,0 +1,163 @@
+name: Asana Sync
+description: Two-way sync between Asana tasks and GitHub issues or Projects.
+author: mel-noeda
+branding:
+  icon: refresh-cw
+  color: blue
+
+inputs:
+  mode:
+    description: "Sync direction — a2g (Asana → GitHub) or g2a (GitHub → Asana)"
+    required: true
+  asana_token:
+    description: Asana personal access token
+    required: true
+  github_token:
+    description: GitHub PAT with repo and/or project scopes (not the built-in GITHUB_TOKEN)
+    required: true
+  asana_project_gid:
+    description: Asana project GID
+    required: true
+  github_project_owner:
+    description: Projects v2 owner (org or user)
+    required: false
+    default: ""
+  github_project_number:
+    description: Projects v2 number
+    required: false
+    default: ""
+  github_repo:
+    description: Target repository as owner/repo
+    required: false
+    default: ""
+  dry_run:
+    description: Preview without writing
+    required: false
+    default: "false"
+  sync_completed:
+    description: A2G also pulls completed Asana tasks
+    required: false
+    default: "false"
+  default_labels:
+    description: Comma-separated labels for A2G repo issues
+    required: false
+    default: ""
+  asana_github_issue_field_gid:
+    description: Override GID for the Asana "GitHub Issue #" custom field
+    required: false
+    default: ""
+  issue_number:
+    description: GitHub issue or pull request number (g2a single-item mode)
+    required: false
+    default: ""
+  columns_only:
+    description: G2A only syncs Status → Asana section (and completion)
+    required: false
+    default: "false"
+  sync_all_project_items:
+    description: G2A syncs every Issue/PR on the Projects v2 board
+    required: false
+    default: "false"
+  github_project_status:
+    description: Override Projects Status name (skips GraphQL lookup)
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Install uv
+      uses: astral-sh/setup-uv@v6
+      with:
+        enable-cache: true
+        working-directory: ${{ github.action_path }}
+        python-version-file: ${{ github.action_path }}/.python-version
+
+    - name: Install dependencies
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: uv sync --frozen
+
+    - name: Run sync
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      env:
+        ASANA_TOKEN: ${{ inputs.asana_token }}
+        GITHUB_TOKEN: ${{ inputs.github_token }}
+        ASANA_PROJECT_GID: ${{ inputs.asana_project_gid }}
+        GITHUB_PROJECT_OWNER: ${{ inputs.github_project_owner }}
+        GITHUB_PROJECT_NUMBER: ${{ inputs.github_project_number }}
+        GITHUB_REPO: ${{ inputs.github_repo }}
+        DRY_RUN: ${{ inputs.dry_run }}
+        SYNC_COMPLETED: ${{ inputs.sync_completed }}
+        DEFAULT_LABELS: ${{ inputs.default_labels }}
+        ASANA_GITHUB_ISSUE_FIELD_GID: ${{ inputs.asana_github_issue_field_gid }}
+        GITHUB_ISSUE_NUMBER: ${{ inputs.issue_number }}
+        COLUMNS_ONLY: ${{ inputs.columns_only }}
+        SYNC_ALL_PROJECT_ITEMS: ${{ inputs.sync_all_project_items }}
+        GITHUB_PROJECT_STATUS: ${{ inputs.github_project_status }}
+        SYNC_MODE: ${{ inputs.mode }}
+      run: |
+        set -euo pipefail
+
+        mode="$(printf '%s' "$SYNC_MODE" | tr '[:upper:]' '[:lower:]')"
+        if [ "$mode" != "a2g" ] && [ "$mode" != "g2a" ]; then
+          echo "::error::mode must be a2g or g2a, got: ${SYNC_MODE}"
+          exit 1
+        fi
+
+        missing=0
+        if [ -z "$ASANA_TOKEN" ]; then
+          echo "::error::asana_token is required"
+          missing=1
+        fi
+        if [ -z "$GITHUB_TOKEN" ]; then
+          echo "::error::github_token is required (use a PAT secret such as ASANA_SYNC_GITHUB_TOKEN)"
+          missing=1
+        fi
+        if [ -z "$ASANA_PROJECT_GID" ]; then
+          echo "::error::asana_project_gid is required"
+          missing=1
+        fi
+
+        if [ "$mode" = "a2g" ]; then
+          if [ -z "$GITHUB_REPO" ] && { [ -z "$GITHUB_PROJECT_OWNER" ] || [ -z "$GITHUB_PROJECT_NUMBER" ]; }; then
+            echo "::error::Configure github_project_owner + github_project_number and/or github_repo"
+            missing=1
+          fi
+          if [ "$missing" -ne 0 ]; then
+            exit 1
+          fi
+          uv run A2G
+          exit 0
+        fi
+
+        if [ "$SYNC_ALL_PROJECT_ITEMS" = "true" ]; then
+          if [ -z "$GITHUB_PROJECT_OWNER" ] || [ -z "$GITHUB_PROJECT_NUMBER" ]; then
+            echo "::error::sync_all_project_items requires github_project_owner and github_project_number"
+            missing=1
+          fi
+        elif [ -z "$GITHUB_ISSUE_NUMBER" ]; then
+          echo "::error::g2a requires issue_number, or set sync_all_project_items=true"
+          missing=1
+        elif [ -z "$GITHUB_REPO" ]; then
+          echo "::error::g2a single-item mode requires github_repo"
+          missing=1
+        fi
+        if [ "$missing" -ne 0 ]; then
+          exit 1
+        fi
+
+        args=()
+        if [ "$SYNC_ALL_PROJECT_ITEMS" = "true" ]; then
+          args+=(--all-project-items)
+          echo "Reconciling all project items on ${GITHUB_PROJECT_OWNER}/#${GITHUB_PROJECT_NUMBER}"
+        else
+          args+=(--issue "$GITHUB_ISSUE_NUMBER")
+          echo "Syncing ${GITHUB_REPO}#${GITHUB_ISSUE_NUMBER} → Asana"
+        fi
+        if [ "$COLUMNS_ONLY" = "true" ]; then
+          args+=(--columns-only)
+          echo "Mode: columns-only (Status → Asana section)"
+        fi
+        uv run G2A "${args[@]}"

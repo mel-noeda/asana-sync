@@ -1,0 +1,53 @@
+# Thinnest consumer workflow: triggers stay here; mode resolution and the job
+# live in asana-sync. Copy to .github/workflows/github-to-asana.yml.
+
+name: GitHub → Asana
+
+on:
+  issues:
+    types: [opened, edited, closed, reopened, labeled, unlabeled, assigned, unassigned]
+  pull_request:
+    types:
+      - opened
+      - edited
+      - closed
+      - reopened
+      - labeled
+      - unlabeled
+      - synchronize
+      - ready_for_review
+      - converted_to_draft
+  schedule:
+    - cron: "*/2 * * * *"
+  repository_dispatch:
+    types: [github_project_item]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "GitHub issue or PR number (leave empty to reconcile all project columns)"
+        required: false
+        type: string
+      columns_only:
+        description: "Only sync Status → Asana section"
+        required: false
+        type: boolean
+        default: false
+      sync_all_project_items:
+        description: "Sync every Issue/PR on the Projects v2 board"
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+jobs:
+  sync:
+    uses: mel-noeda/asana-sync/.github/workflows/reusable-github-to-asana.yml@v1
+    secrets: inherit
+    with:
+      issue_number: ${{ inputs.issue_number }}
+      columns_only: ${{ inputs.columns_only }}
+      sync_all_project_items: ${{ inputs.sync_all_project_items }}

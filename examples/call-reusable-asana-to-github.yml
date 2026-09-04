@@ -1,0 +1,19 @@
+# Thinnest consumer workflow: triggers stay here; the job lives in asana-sync.
+# Copy to .github/workflows/asana-to-github.yml in the consuming repository.
+
+name: Asana → GitHub
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    uses: mel-noeda/asana-sync/.github/workflows/reusable-asana-to-github.yml@v1
+    secrets: inherit
+    with:
+      github_repo: ${{ github.repository }}

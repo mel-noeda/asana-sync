@@ -1,0 +1,26 @@
+# Copy to .github/workflows/asana-to-github.yml in the consuming repository.
+# Requires the secrets listed in README.md.
+
+name: Asana → GitHub
+
+on:
+  schedule:
+    - cron: "0 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: mel-noeda/asana-sync@v1
+        with:
+          mode: a2g
+          asana_token: ${{ secrets.ASANA_TOKEN }}
+          github_token: ${{ secrets.ASANA_SYNC_GITHUB_TOKEN }}
+          asana_project_gid: ${{ secrets.ASANA_PROJECT_GID }}
+          github_repo: ${{ github.repository }}
+          github_project_owner: ${{ secrets.GITHUB_PROJECT_OWNER }}
+          github_project_number: ${{ secrets.GITHUB_PROJECT_NUMBER }}

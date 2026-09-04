@@ -1,77 +1,46 @@
-name: GitHub → Asana
-
-# Fast path: sync a GitHub issue/PR (and its Projects Status column) into Asana.
-#
-# Note: GitHub Actions does not support the projects_v2_item webhook as a workflow
-# trigger. Column moves are covered by:
-#   1) a short schedule that reconciles Status → Asana sections
-#   2) repository_dispatch (optional org/user webhook bridge)
-#   3) normal issue/PR events (also refresh Status when those fire)
+name: Reusable GitHub → Asana
 
 on:
-  issues:
-    types:
-      - opened
-      - edited
-      - closed
-      - reopened
-      - labeled
-      - unlabeled
-      - assigned
-      - unassigned
-  pull_request:
-    types:
-      - opened
-      - edited
-      - closed
-      - reopened
-      - labeled
-      - unlabeled
-      - synchronize
-      - ready_for_review
-      - converted_to_draft
-  schedule:
-    # Reconcile board columns ≈ every 2 minutes (Actions cron minimum granularity).
-    - cron: "*/2 * * * *"
-  repository_dispatch:
-    types: [github_project_item]
-  workflow_dispatch:
+  workflow_call:
     inputs:
       issue_number:
-        description: "GitHub issue or PR number (leave empty to reconcile all project columns)"
-        required: false
+        description: GitHub issue or pull request number
         type: string
-      columns_only:
-        description: "Only sync Status→Asana section (recommended for column testing)"
         required: false
+        default: ""
+      columns_only:
+        description: Only sync Status → Asana section
         type: boolean
+        required: false
         default: false
       sync_all_project_items:
-        description: "Sync every Issue/PR on the Projects v2 board"
-        required: false
+        description: Sync every Issue/PR on the Projects v2 board
         type: boolean
+        required: false
         default: false
       github_repo:
-        description: "owner/repo (defaults to this repository)"
-        required: false
+        description: owner/repo (defaults to the caller repository)
         type: string
-      asana_project_gid:
-        description: "Asana project GID"
         required: false
-        type: string
-      github_project_owner:
-        description: "Projects v2 owner"
-        required: false
-        type: string
-      github_project_number:
-        description: "Projects v2 number"
-        required: false
-        type: string
+        default: ""
       dry_run:
-        description: "Preview without writing to Asana"
-        required: false
+        description: Preview without writing to Asana
         type: boolean
+        required: false
         default: false
+    secrets:
+      ASANA_TOKEN:
+        required: true
+      ASANA_SYNC_GITHUB_TOKEN:
+        required: true
+      ASANA_PROJECT_GID:
+        required: true
+      GITHUB_PROJECT_OWNER:
+        required: false
+      GITHUB_PROJECT_NUMBER:
+        required: false
+      GITHUB_REPO:
+        required: false
 
 permissions:
   contents: read
@@ -86,8 +55,11 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout asana-sync
         uses: actions/checkout@v4
+        with:
+          repository: mel-noeda/asana-sync
+          ref: ${{ github.workflow_sha }}
 
       - name: Resolve sync mode
         id: mode
@@ -128,9 +100,9 @@ jobs:
           mode: g2a
           asana_token: ${{ secrets.ASANA_TOKEN }}
           github_token: ${{ secrets.ASANA_SYNC_GITHUB_TOKEN }}
-          asana_project_gid: ${{ inputs.asana_project_gid || secrets.ASANA_PROJECT_GID }}
-          github_project_owner: ${{ inputs.github_project_owner || secrets.GITHUB_PROJECT_OWNER }}
-          github_project_number: ${{ inputs.github_project_number || secrets.GITHUB_PROJECT_NUMBER }}
+          asana_project_gid: ${{ secrets.ASANA_PROJECT_GID }}
+          github_project_owner: ${{ secrets.GITHUB_PROJECT_OWNER }}
+          github_project_number: ${{ secrets.GITHUB_PROJECT_NUMBER }}
           github_repo: ${{ steps.mode.outputs.dispatch_repo || inputs.github_repo || secrets.GITHUB_REPO || github.repository }}
           issue_number: ${{ steps.mode.outputs.issue_number }}
           columns_only: ${{ steps.mode.outputs.columns_only }}

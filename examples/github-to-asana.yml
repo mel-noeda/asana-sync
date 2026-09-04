@@ -1,12 +1,11 @@
-name: GitHub → Asana
-
-# Fast path: sync a GitHub issue/PR (and its Projects Status column) into Asana.
+# Copy to .github/workflows/github-to-asana.yml in the consuming repository.
+# Requires the secrets listed in README.md.
 #
-# Note: GitHub Actions does not support the projects_v2_item webhook as a workflow
-# trigger. Column moves are covered by:
-#   1) a short schedule that reconciles Status → Asana sections
-#   2) repository_dispatch (optional org/user webhook bridge)
-#   3) normal issue/PR events (also refresh Status when those fire)
+# GitHub Actions cannot trigger on projects_v2_item. The two-minute schedule
+# reconciles board column moves. For faster delivery, forward an org/user
+# webhook as repository_dispatch type github_project_item.
+
+name: GitHub → Asana
 
 on:
   issues:
@@ -31,7 +30,6 @@ on:
       - ready_for_review
       - converted_to_draft
   schedule:
-    # Reconcile board columns ≈ every 2 minutes (Actions cron minimum granularity).
     - cron: "*/2 * * * *"
   repository_dispatch:
     types: [github_project_item]
@@ -42,33 +40,12 @@ on:
         required: false
         type: string
       columns_only:
-        description: "Only sync Status→Asana section (recommended for column testing)"
+        description: "Only sync Status → Asana section"
         required: false
         type: boolean
         default: false
       sync_all_project_items:
         description: "Sync every Issue/PR on the Projects v2 board"
-        required: false
-        type: boolean
-        default: false
-      github_repo:
-        description: "owner/repo (defaults to this repository)"
-        required: false
-        type: string
-      asana_project_gid:
-        description: "Asana project GID"
-        required: false
-        type: string
-      github_project_owner:
-        description: "Projects v2 owner"
-        required: false
-        type: string
-      github_project_number:
-        description: "Projects v2 number"
-        required: false
-        type: string
-      dry_run:
-        description: "Preview without writing to Asana"
         required: false
         type: boolean
         default: false
@@ -86,9 +63,6 @@ jobs:
   sync:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Resolve sync mode
         id: mode
         env:
@@ -122,18 +96,16 @@ jobs:
           echo "dispatch_repo=${DISPATCH_REPO}" >> "$GITHUB_OUTPUT"
           echo "dispatch_status=${DISPATCH_STATUS}" >> "$GITHUB_OUTPUT"
 
-      - name: Sync GitHub → Asana
-        uses: ./
+      - uses: mel-noeda/asana-sync@v1
         with:
           mode: g2a
           asana_token: ${{ secrets.ASANA_TOKEN }}
           github_token: ${{ secrets.ASANA_SYNC_GITHUB_TOKEN }}
-          asana_project_gid: ${{ inputs.asana_project_gid || secrets.ASANA_PROJECT_GID }}
-          github_project_owner: ${{ inputs.github_project_owner || secrets.GITHUB_PROJECT_OWNER }}
-          github_project_number: ${{ inputs.github_project_number || secrets.GITHUB_PROJECT_NUMBER }}
-          github_repo: ${{ steps.mode.outputs.dispatch_repo || inputs.github_repo || secrets.GITHUB_REPO || github.repository }}
+          asana_project_gid: ${{ secrets.ASANA_PROJECT_GID }}
+          github_project_owner: ${{ secrets.GITHUB_PROJECT_OWNER }}
+          github_project_number: ${{ secrets.GITHUB_PROJECT_NUMBER }}
+          github_repo: ${{ steps.mode.outputs.dispatch_repo || secrets.GITHUB_REPO || github.repository }}
           issue_number: ${{ steps.mode.outputs.issue_number }}
           columns_only: ${{ steps.mode.outputs.columns_only }}
           sync_all_project_items: ${{ steps.mode.outputs.sync_all }}
           github_project_status: ${{ steps.mode.outputs.dispatch_status }}
-          dry_run: ${{ inputs.dry_run }}
