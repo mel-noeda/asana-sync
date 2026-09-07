@@ -63,7 +63,7 @@ import time
 import requests
 
 from asana_columns import match_named_value, parse_section_names, resolve_sections
-from cfg import cfg
+from cfg import cfg, normalize_asana_gid
 from log import configure_logging, get_logger
 
 configure_logging()
@@ -355,7 +355,12 @@ def _check_asana_access(token: str, project_gid: str) -> list[str]:
 
 
 def _check_github_token(token: str) -> tuple[str | None, list[str]]:
-    """Return (login, errors) after probing GITHUB_TOKEN."""
+    """Return (login, errors) after probing the GitHub token."""
+    if cfg.using_actions_job_token():
+        # The job token is a GitHub App installation token. GET /user returns
+        # 403 Resource not accessible by integration — skip that probe.
+        return "github-actions", []
+
     try:
         resp = requests.get(f"{GITHUB_API}/user", headers=_gh_headers(token), timeout=30)
     except requests.RequestException as exc:
@@ -364,12 +369,12 @@ def _check_github_token(token: str) -> tuple[str | None, list[str]]:
     if resp.status_code == 401:
         return None, [
             "GITHUB_TOKEN is invalid or expired. Create a personal access token "
-            "with the `project` scope (and `repo` if using GITHUB_REPO), then set GITHUB_TOKEN."
+            "and set GITHUB_TOKEN locally, or secret GH_TOKEN in Actions."
         ]
     if resp.status_code == 403:
         return None, [
-            "GITHUB_TOKEN was rejected (HTTP 403). Check that the token has the "
-            f"`project` scope, and authorize it for org SSO if needed. GitHub said: {_github_error_detail(resp)}"
+            "GITHUB_TOKEN was rejected (HTTP 403). Authorize the token for org SSO "
+            f"if needed. GitHub said: {_github_error_detail(resp)}"
         ]
     if not resp.ok:
         return None, [f"GitHub rejected GITHUB_TOKEN (HTTP {resp.status_code}): {_github_error_detail(resp)}"]
@@ -385,19 +390,27 @@ def _check_github_repo(token: str, repo: str, login: str) -> list[str]:
         return [f"Could not reach GitHub to validate GITHUB_REPO={repo}: {exc}"]
 
     if resp.status_code in {403, 404}:
-        return [
-            f"GITHUB_TOKEN for {login} cannot access repository {repo}. "
-            "Check GITHUB_REPO is 'owner/repo', that the token has the `repo` scope "
-            "(or Issues write on a fine-grained PAT), and that org SSO is authorized if required."
-        ]
+        extra = (
+            " Grant issues: write on the workflow."
+            if cfg.using_actions_job_token()
+            else " Check GITHUB_REPO is 'owner/repo', that the token can read this repository, "
+            "and that org SSO is authorized if required."
+        )
+        return [f"GITHUB_TOKEN for {login} cannot access repository {repo}.{extra}"]
     if not resp.ok:
         return [f"Failed to read GitHub repository {repo} (HTTP {resp.status_code}): {_github_error_detail(resp)}"]
 
     perms = resp.json().get("permissions") or {}
-    if perms and not (perms.get("push") or perms.get("admin") or perms.get("maintain")):
+    # Job tokens with issues: write often have pull but not push. Do not require push.
+    if (
+        not cfg.using_actions_job_token()
+        and perms
+        and not (perms.get("push") or perms.get("admin") or perms.get("maintain") or perms.get("triage"))
+        and perms.get("pull")
+    ):
         return [
             f"GITHUB_TOKEN for {login} can see {repo} but cannot create issues "
-            "(no write access). Grant write access or the `repo` scope."
+            "(no write access). Grant Issues write or the `repo` scope."
         ]
 
     logger.info(f"GitHub: {login} can access repository {repo}.")
@@ -500,9 +513,7 @@ def validate_environment(repo: str | None, project_gid: str) -> str | None:
         if repo:
             errors.extend(_check_github_repo(gh_token, repo, login))
         if project_owner and project_number:
-            project_node_id, project_errors = _check_github_project(
-                gh_token, project_owner, project_number, login
-            )
+            project_node_id, project_errors = _check_github_project(gh_token, project_owner, project_number, login)
             errors.extend(project_errors)
 
     if errors:
@@ -690,7 +701,10 @@ def main(argv=None):
     args = parse_args(argv)
     logger.info(f"Starting with log level {cfg.log_level}.")
     asana_token = cfg.asana_token
-    project_gid = args.project_gid or cfg.asana_project_gid
+    project_gid = normalize_asana_gid(
+        args.project_gid or cfg.asana_project_gid,
+        name="--project-gid" if args.project_gid else "ASANA_PROJECT_GID",
+    )
     gh_token = cfg.github_token
 
     repo = args.repo or cfg.github_repo

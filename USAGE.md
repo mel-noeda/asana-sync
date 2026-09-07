@@ -23,7 +23,7 @@ The Asana user who owns the token must be a member of the target project. A2G wr
 - custom fields
 - project section
 
-The project identifier is `ASANA_PROJECT_GID` (or `--project-gid`): the number in the project URL (`…/0/<GID>/list`). Pass it as a workflow input when you run A2G for more than one Asana project.
+The project identifier is `ASANA_PROJECT_GID` (or `--project-gid`): the number in the project URL (`…/0/<GID>/list`). Pass it as a workflow input when you run A2G for more than one Asana project. Always quote that GID in YAML (`asana_project_gid: "1210771720905224"`). An unquoted value becomes a float such as `1.21E+15`, which Asana rejects.
 
 ### GitHub personal access token
 

@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 from functools import cached_property
 
 from dotenv import load_dotenv
 
 load_dotenv()
+
+_ASANA_GID_DIGITS = re.compile(r"^\d+$")
+_ASANA_GID_SCIENTIFIC = re.compile(r"^\d+\.\d+[eE][+-]?\d+$")
 
 
 def _get(name: str, default: str | None = None) -> str | None:
@@ -42,6 +46,25 @@ def _int(name: str) -> int | None:
         sys.exit(f"{name} must be an integer, got: {raw!r}")
 
 
+def normalize_asana_gid(raw: str, *, name: str = "ASANA_PROJECT_GID") -> str:
+    """
+    Return a digit-only Asana GID.
+
+    Unquoted GIDs in YAML become floats such as 1.21077172090522E+15, which
+    Asana rejects. Fail clearly so the workflow can quote the value.
+    """
+    value = raw.strip()
+    if _ASANA_GID_DIGITS.fullmatch(value):
+        return value
+    if _ASANA_GID_SCIENTIFIC.fullmatch(value):
+        sys.exit(
+            f"{name} looks like a floating-point number ({value!r}). "
+            "Asana GIDs are large integers. Quote them as strings in YAML, "
+            'for example asana_project_gid: "1210771720905224".'
+        )
+    sys.exit(f"{name} must be an Asana project GID (digits only), got: {value!r}")
+
+
 class Config:
     """Typed wrappers around the environment variables this project uses."""
 
@@ -51,7 +74,12 @@ class Config:
 
     @cached_property
     def asana_project_gid(self) -> str:
-        return _require("ASANA_PROJECT_GID")
+        return normalize_asana_gid(_require("ASANA_PROJECT_GID"))
+
+    def using_actions_job_token(self) -> bool:
+        """True when this process is using the built-in Actions GITHUB_TOKEN."""
+        current = _get("GITHUB_REPOSITORY")
+        return bool(current) and not _get("GH_TOKEN")
 
     @cached_property
     def github_token(self) -> str:

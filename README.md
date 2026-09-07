@@ -54,6 +54,7 @@ jobs:
     strategy:
       matrix:
         include:
+          # Quote GIDs. Unquoted numbers become 1.21E+15 and Asana rejects them.
           - asana_project_gid: "111"
           - asana_project_gid: "222"
           - asana_project_gid: "333"
@@ -118,7 +119,7 @@ gh api repos/<owner>/<repo>/dispatches \
 | `mode` | yes | `a2g` or `g2a` |
 | `asana_token` | yes | From `ASANA_TOKEN` |
 | `github_token` | for another repo or Projects | From secret `GH_TOKEN`. Omit when the target is this repository and Projects is unset |
-| `asana_project_gid` | yes | Asana project GID (input, not a secret) |
+| `asana_project_gid` | yes | Asana project GID as a quoted string (unquoted values become floats) |
 | `github_repo` | for repo issues and G2A single-item | Destination `owner/repo` |
 | `asana_section` | no | A2G: only import tasks in this section (comma-separated) |
 | `asana_status_field` | no | A2G: match `asana_section` against this custom field |

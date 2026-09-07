@@ -145,6 +145,9 @@ runs:
         if [ -z "$ASANA_PROJECT_GID" ]; then
           echo "::error::asana_project_gid is required"
           missing=1
+        elif printf '%s' "$ASANA_PROJECT_GID" | grep -Eq '[eE]'; then
+          echo "::error::asana_project_gid looks like a float (${ASANA_PROJECT_GID}). Quote it as a string, for example asana_project_gid: \"1210771720905224\""
+          missing=1
         fi
 
         if [ "$mode" = "a2g" ]; then
