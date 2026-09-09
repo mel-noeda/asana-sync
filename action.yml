@@ -52,7 +52,7 @@ inputs:
     required: false
     default: ""
   asana_github_issue_field_gid:
-    description: Override GID for the Asana "GitHub Issue #" custom field
+    description: Override GID for the Asana "GitHub Issue #" or "GitHub Issue" custom field
     required: false
     default: ""
   issue_number:

@@ -12,8 +12,8 @@ Also syncs GitHub Projects v2 Status (board column) → Asana project section.
 
 Linking:
 - Prefer the hidden marker in the issue body: <!-- asana-task-gid:{gid} -->
-- Fallback: Asana project task whose "GitHub Issue #" custom field matches
-  the issue number
+- Fallback: Asana project task whose "GitHub Issue #" or "GitHub Issue"
+  custom field matches the issue number
 
 Synced fields:
 - title → Asana task name
@@ -47,7 +47,7 @@ Optional:
     DRY_RUN               "true" to preview without writing to Asana
     GITHUB_PROJECT_STATUS Override Status name (skips GraphQL lookup)
     ASANA_GITHUB_ISSUE_FIELD_GID
-                          Override for the "GitHub Issue #" field GID
+                          Override for the "GitHub Issue #" / "GitHub Issue" field GID
 """
 
 from __future__ import annotations
@@ -60,6 +60,7 @@ import time
 import requests
 
 from asana_sync.asana_columns import match_asana_section, normalize_column_key
+from asana_sync.asana_to_github import GITHUB_ISSUE_FIELD_NAMES
 from asana_sync.config import config
 
 ASANA_BASE = "https://app.asana.com/api/1.0"
@@ -74,7 +75,6 @@ META_LINE_RE = re.compile(
 STORY_POINTS_RE = re.compile(r"^(?:sp|story[_-]?points)[:\s-]*(\d+(?:\.\d+)?)$", re.I)
 DONE_STATUS_KEYS = frozenset({"done", "complete", "completed"})
 
-DEFAULT_GITHUB_ISSUE_FIELD_NAME = "GitHub Issue #"
 FIELD_LABELS = "Labels"
 FIELD_ISSUE_TYPE = "Issue Type"
 FIELD_PRIORITY = "Priority"
@@ -354,6 +354,15 @@ def index_custom_fields(settings):
     return by_name
 
 
+def github_issue_field(fields_by_name):
+    """Return the GitHub Issue # or GitHub Issue field entry, if present."""
+    for name in GITHUB_ISSUE_FIELD_NAMES:
+        field = fields_by_name.get(name)
+        if field:
+            return field
+    return None
+
+
 def asana_find_task_by_issue_number(token, workspace_gid, project_gid, field_gid, issue_number):
     """Search the project for a task whose GitHub Issue # field matches."""
     resp = requests.get(
@@ -457,7 +466,7 @@ def resolve_asana_task(asana_token, project_gid, issue, fields_by_name, *, works
     if from_marker:
         return from_marker, "issue body marker"
 
-    github_field = fields_by_name.get(DEFAULT_GITHUB_ISSUE_FIELD_NAME)
+    github_field = github_issue_field(fields_by_name)
     field_gid = config.asana_github_issue_field_gid or (github_field or {}).get("gid")
     if not field_gid:
         return None, None
@@ -633,7 +642,7 @@ def main(argv=None):
 
     settings = asana_custom_field_settings(asana_token, asana_project_gid)
     fields_by_name = index_custom_fields(settings)
-    github_field = fields_by_name.get(DEFAULT_GITHUB_ISSUE_FIELD_NAME)
+    github_field = github_issue_field(fields_by_name)
     github_issue_field_gid = config.asana_github_issue_field_gid or (github_field or {}).get("gid")
 
     asana_project = asana_get_project(asana_token, asana_project_gid)

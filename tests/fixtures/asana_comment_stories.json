@@ -1,0 +1,26 @@
+[
+  {
+    "gid": "1211111111111111",
+    "resource_subtype": "comment_added",
+    "type": "comment",
+    "text": "I'm investigating the reload abort.",
+    "created_at": "2026-09-08T11:42:07.035Z",
+    "created_by": {"name": "Luis Ackermann"}
+  },
+  {
+    "gid": "1211111111111112",
+    "resource_subtype": "section_changed",
+    "type": "system",
+    "text": "moved this task",
+    "created_at": "2026-09-08T12:59:14.962Z",
+    "created_by": {"name": "Luis Ackermann"}
+  },
+  {
+    "gid": "1211111111111113",
+    "resource_subtype": "comment_added",
+    "type": "comment",
+    "text": "Upgrade Dapr and re-check the logs.",
+    "created_at": "2026-09-09T13:28:56.351Z",
+    "created_by": {"name": "Mel Padden"}
+  }
+]

@@ -136,7 +136,7 @@ gh api repos/<owner>/<repo>/dispatches \
 | `columns_only` | no | G2A only syncs Status → section |
 | `sync_all_project_items` | no | G2A syncs every board item |
 | `github_project_status` | no | Override Status; skips GraphQL lookup |
-| `asana_github_issue_field_gid` | no | Override for the `GitHub Issue #` field |
+| `asana_github_issue_field_gid` | no | Override for the `GitHub Issue #` or `GitHub Issue` field |
 
 ## Versioning
 
@@ -162,19 +162,20 @@ That listing is not the same as GitHub's curated starter workflows (Pages and si
 The tools link items with:
 
 1. A hidden marker in the GitHub issue or draft body: `<!-- asana-task-gid:{gid} -->`
-2. An Asana custom field named `GitHub Issue #` that matches the GitHub issue number
+2. An Asana custom field named `GitHub Issue #` or `GitHub Issue` that matches the GitHub issue number
 
 | GitHub | Asana |
 | --- | --- |
 | title | task name |
 | body | notes |
+| issue comments | task comments (A2G copies Asana comments onto the GitHub issue) |
 | open/closed (+ Status `Done`) | completed |
 | labels | Labels / Issue Type / Priority / Story Points (`sp:3`) |
 | Projects **Status** | project section (column) |
 
 Status names match Asana sections flexibly — for example `Ready` → `Ready / Sprint`.
 
-**Repo mode** (the usual A2G destination): set `github_repo` / `GITHUB_REPO` as `owner/repo`. The sync writes the GitHub issue number into Asana's `GitHub Issue #` field and attaches the issue URL. You can still set the project inputs to link those issues onto a board.
+**Repo mode** (the usual A2G destination): set `github_repo` / `GITHUB_REPO` as `owner/repo`. The sync writes the GitHub issue number into Asana's `GitHub Issue #` or `GitHub Issue` field and attaches the issue URL. A re-run updates the GitHub title and body when the Asana task has changed, and copies Asana comments that are not yet on the issue. You can still set the project inputs to link those issues onto a board.
 
 **Project-only mode**: omit the repo and set `github_project_owner` plus `github_project_number`. Creates draft issues on the board.
 

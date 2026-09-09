@@ -126,15 +126,35 @@ def test_missing_github_issue_field_still_creates_without_writeback(http, sync_e
     stub_asana_sections(http)
     stub_asana_section_tasks(http, "sec-in-progress", [task])
     stub_create_issue(http)
+    stub_reconcile(http, TASK_IN_PROGRESS_GID)
 
     with caplog.at_level(logging.WARNING):
         run_a2g(*A2G_GATE)
 
     assert len(calls_matching(http, "POST", f"{REPO}/issues")) == 1
     assert calls_matching(http, "PUT", f"{ASANA_BASE}/tasks/") == []
-    assert calls_matching(http, "POST", f"{ASANA_BASE}/attachments") == []
-    assert "GitHub Issue #" in caplog.text
+    assert len(calls_matching(http, "POST", f"{ASANA_BASE}/attachments")) == 1
     assert "not found" in caplog.text
+    assert "will still be attached" in caplog.text
+
+
+def test_github_issue_field_without_hash_writes_back(http, sync_env, skip_validate, monkeypatch):
+    monkeypatch.delenv("ASANA_GITHUB_ISSUE_FIELD_GID", raising=False)
+    cfg.__dict__.clear()
+
+    task = load_fixture("asana_task_in_progress.json")
+    stub_custom_field_settings(http, load_fixture("asana_custom_field_settings_github_issue.json"))
+    stub_github_issue_list(http, [])
+    stub_asana_sections(http)
+    stub_asana_section_tasks(http, "sec-in-progress", [task])
+    stub_create_issue(http)
+    stub_reconcile(http, TASK_IN_PROGRESS_GID)
+
+    run_a2g(*A2G_GATE)
+
+    puts = calls_matching(http, "PUT", f"{ASANA_BASE}/tasks/{TASK_IN_PROGRESS_GID}")
+    assert len(puts) == 1
+    assert len(calls_matching(http, "POST", f"{ASANA_BASE}/attachments")) == 1
 
 
 def test_a2g_enrichment_defaults_to_off(sync_env):

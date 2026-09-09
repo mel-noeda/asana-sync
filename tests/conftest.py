@@ -149,14 +149,37 @@ def stub_reconcile(
     *,
     attachments: list[dict] | None = None,
     allow_write: bool = True,
+    stories: list[dict] | None = None,
+    comments: list[dict] | None = None,
+    issue_number: int = 42,
 ) -> None:
-    """Asana write-back after a GitHub issue exists: field PUT + URL attachment."""
+    """Asana write-back after a GitHub issue exists: field PUT + URL attachment + comments."""
     http.add(
         responses.GET,
         f"{ASANA_BASE}/attachments",
         json={"data": attachments if attachments is not None else []},
         status=200,
     )
+    http.add(
+        responses.GET,
+        f"{ASANA_BASE}/tasks/{task_gid}/stories",
+        json={"data": stories if stories is not None else []},
+        status=200,
+    )
+    if stories:
+        http.add(
+            responses.GET,
+            f"{GITHUB_API}/repos/{REPO}/issues/{issue_number}/comments",
+            json=comments if comments is not None else [],
+            status=200,
+        )
+        if allow_write:
+            http.add(
+                responses.POST,
+                f"{GITHUB_API}/repos/{REPO}/issues/{issue_number}/comments",
+                json={"id": 1, "body": "ok"},
+                status=201,
+            )
     if allow_write:
         http.add(
             responses.PUT,
@@ -169,6 +192,12 @@ def stub_reconcile(
             f"{ASANA_BASE}/attachments",
             json={"data": {"gid": "att-1"}},
             status=201,
+        )
+        http.add(
+            responses.PATCH,
+            f"{GITHUB_API}/repos/{REPO}/issues/{issue_number}",
+            json={"number": issue_number, "html_url": ISSUE_URL},
+            status=200,
         )
 
 

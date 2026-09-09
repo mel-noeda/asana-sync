@@ -72,7 +72,7 @@ Optional:
 - `--dry-run` / `DRY_RUN=true` — preview without writing
 - `--sync-completed` / `SYNC_COMPLETED=true` — A2G also pulls completed Asana tasks
 - `DEFAULT_LABELS` — comma-separated labels for A2G repo issues
-- `ASANA_GITHUB_ISSUE_FIELD_GID` — override for the `GitHub Issue #` custom field
+- `ASANA_GITHUB_ISSUE_FIELD_GID` — override for the `GitHub Issue #` or `GitHub Issue` custom field
 - `A2G_ENRICHMENT` — reserved post-create hook (`off` by default; other values log and do nothing)
 
 ### Asana → GitHub
@@ -83,7 +83,7 @@ uv run A2G --project-gid 111 --repo owner/repo --section "In Progress"
 uv run A2G --section "In Progress" --status-field Status
 ```
 
-Each invocation reads one Asana project. Run the command again (or add another workflow job) for a second project. Repo mode creates issues in `--repo` / `GITHUB_REPO` and writes the issue number into Asana's `GitHub Issue #` field.
+Each invocation reads one Asana project. Run the command again (or add another workflow job) for a second project. Repo mode creates issues in `--repo` / `GITHUB_REPO` and writes the issue number into Asana's `GitHub Issue #` or `GitHub Issue` field. A re-run updates the GitHub title and body when the Asana task has changed, and copies Asana comments that are not yet on the issue.
 
 Omit `--section` to import every incomplete task, as before.
 
@@ -102,7 +102,7 @@ Reconcile **Status** on every board item into the matching Asana section:
 uv run G2A --all-project-items --columns-only
 ```
 
-G2A finds the Asana task from the `<!-- asana-task-gid:… -->` marker in the issue body, or from a task whose `GitHub Issue #` field matches the issue number.
+G2A finds the Asana task from the `<!-- asana-task-gid:… -->` marker in the issue body, or from a task whose `GitHub Issue #` or `GitHub Issue` field matches the issue number.
 
 ## Workflows in this repository
 

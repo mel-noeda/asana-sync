@@ -1,0 +1,16 @@
+{
+  "data": [
+    {
+      "custom_field": {
+        "name": "Status",
+        "gid": "fld-status"
+      }
+    },
+    {
+      "custom_field": {
+        "name": "GitHub Issue",
+        "gid": "fld-gh"
+      }
+    }
+  ]
+}

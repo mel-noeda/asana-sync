@@ -13,8 +13,10 @@ Key properties:
   optional extra link.
 - Optional: create draft issues on a Projects v2 board when no repo is set.
 - When using GITHUB_REPO: write the GitHub issue number back to Asana's
-  "GitHub Issue #" custom field and attach the issue URL on the task.
-  Already-synced tasks are reconciled on every run.
+  "GitHub Issue #" or "GitHub Issue" custom field and attach the issue URL
+  on the task. Already-synced tasks are reconciled on every run: title and
+  body are updated when the Asana task has changed, and Asana comments are
+  copied onto the GitHub issue (idempotent via a story-gid marker).
 - Optional import gate: only create issues for tasks in named Asana sections,
   or whose custom field matches those names.
 
@@ -42,8 +44,9 @@ Optional environment variables:
     ASANA_STATUS_FIELD      Match ASANA_SECTION against this custom field
                             instead of a board section. CLI: --status-field
     ASANA_GITHUB_ISSUE_FIELD_GID
-                            Custom field GID for "GitHub Issue #". If unset, the
-                            field is resolved by name on the Asana project.
+                            Custom field GID for "GitHub Issue #" or
+                            "GitHub Issue". If unset, the field is resolved by
+                            name on the Asana project.
     SYNC_COMPLETED          "true" to also sync completed tasks (default: skip them)
                             CLI: --sync-completed
     DEFAULT_LABELS          Comma-separated labels for repo issues only
@@ -77,7 +80,10 @@ GITHUB_GRAPHQL = "https://api.github.com/graphql"
 
 MARKER_TEMPLATE = "<!-- asana-task-gid:{gid} -->"
 MARKER_RE = re.compile(r"<!-- asana-task-gid:(\d+) -->")
+STORY_MARKER_TEMPLATE = "<!-- asana-story-gid:{gid} -->"
+STORY_MARKER_RE = re.compile(r"<!-- asana-story-gid:(\d+) -->")
 DEFAULT_GITHUB_ISSUE_FIELD_NAME = "GitHub Issue #"
+GITHUB_ISSUE_FIELD_NAMES = (DEFAULT_GITHUB_ISSUE_FIELD_NAME, "GitHub Issue")
 TASK_OPT_FIELDS = (
     "name,notes,completed,permalink_url,assignee.name,due_on,"
     "custom_fields,custom_fields.name,custom_fields.gid,"
@@ -149,8 +155,8 @@ def parse_args(argv=None):
     return parser.parse_args(argv)
 
 
-def asana_find_custom_field_gid(token, project_gid, field_name=DEFAULT_GITHUB_ISSUE_FIELD_NAME):
-    """Resolve a project custom field GID by display name."""
+def asana_custom_field_settings(token, project_gid):
+    """Return custom field settings for a project."""
     resp = requests.get(
         f"{ASANA_BASE}/projects/{project_gid}/custom_field_settings",
         headers=_asana_headers(token),
@@ -158,11 +164,31 @@ def asana_find_custom_field_gid(token, project_gid, field_name=DEFAULT_GITHUB_IS
         timeout=30,
     )
     resp.raise_for_status()
-    for setting in resp.json().get("data", []):
+    return resp.json().get("data", [])
+
+
+def asana_find_custom_field_gid(token, project_gid, field_name=DEFAULT_GITHUB_ISSUE_FIELD_NAME):
+    """Resolve a project custom field GID by display name."""
+    for setting in asana_custom_field_settings(token, project_gid):
         field = setting.get("custom_field") or {}
         if field.get("name") == field_name:
             return field.get("gid")
     return None
+
+
+def asana_find_github_issue_field(token, project_gid):
+    """Return (gid, name) for GitHub Issue # or GitHub Issue, else (None, None)."""
+    by_name = {}
+    for setting in asana_custom_field_settings(token, project_gid):
+        field = setting.get("custom_field") or {}
+        name = field.get("name")
+        if name:
+            by_name[name] = field.get("gid")
+    for name in GITHUB_ISSUE_FIELD_NAMES:
+        gid = by_name.get(name)
+        if gid:
+            return gid, name
+    return None, None
 
 
 def task_custom_field_text(task, field_gid):
@@ -196,6 +222,35 @@ def asana_list_attachments(token, task_gid):
     return resp.json().get("data", [])
 
 
+def asana_list_comment_stories(token, task_gid):
+    """Return Asana comment stories on a task, following pagination."""
+    headers = _asana_headers(token)
+    url = f"{ASANA_BASE}/tasks/{task_gid}/stories"
+    params = {
+        "opt_fields": "gid,text,created_at,created_by.name,resource_subtype,type",
+        "limit": 100,
+    }
+    stories = []
+    while url:
+        resp = requests.get(url, headers=headers, params=params, timeout=30)
+        resp.raise_for_status()
+        payload = resp.json()
+        for story in payload.get("data", []):
+            subtype = story.get("resource_subtype")
+            if subtype != "comment_added" and story.get("type") != "comment":
+                continue
+            if not (story.get("text") or "").strip():
+                continue
+            stories.append(story)
+        next_page = payload.get("next_page")
+        if next_page and next_page.get("uri"):
+            url = next_page["uri"]
+            params = None
+        else:
+            url = None
+    return stories
+
+
 def asana_ensure_github_link(token, task_gid, issue_url, issue_number, title):
     """Attach the GitHub issue URL on the Asana task if it is not already linked."""
     for attachment in asana_list_attachments(token, task_gid):
@@ -227,6 +282,7 @@ def reconcile_asana_github_link(
     """
     Ensure the Asana task has the correct GitHub issue number and URL attachment.
 
+    The issue URL is attached even when no custom field GID is available.
     Returns a short status string describing what happened.
     """
     task_gid = task["gid"]
@@ -235,14 +291,15 @@ def reconcile_asana_github_link(
     title = issue.get("title") or task.get("name") or f"Issue #{issue_number}"
     actions = []
 
-    current = task_custom_field_text(task, field_gid)
-    desired = str(issue_number)
-    if current != desired:
-        if dry_run:
-            actions.append(f"set GitHub Issue # to {desired}")
-        else:
-            asana_set_github_issue_number(asana_token, task_gid, field_gid, issue_number)
-            actions.append(f"set GitHub Issue # to {desired}")
+    if field_gid:
+        current = task_custom_field_text(task, field_gid)
+        desired = str(issue_number)
+        if current != desired:
+            if dry_run:
+                actions.append(f"set GitHub Issue # to {desired}")
+            else:
+                asana_set_github_issue_number(asana_token, task_gid, field_gid, issue_number)
+                actions.append(f"set GitHub Issue # to {desired}")
 
     if dry_run:
         actions.append(f"ensure link {issue_url}")
@@ -552,6 +609,7 @@ def github_existing_synced_issues(token, repo):
                     "html_url": issue["html_url"],
                     "node_id": issue["node_id"],
                     "title": issue.get("title") or "",
+                    "body": body,
                 }
         page += 1
     return by_gid
@@ -569,6 +627,57 @@ def github_create_issue(token, repo, title, body, labels):
     )
     resp.raise_for_status()
     return resp.json()  # includes number, html_url, node_id
+
+
+def github_update_issue(token, repo, number, *, title=None, body=None):
+    data = {}
+    if title is not None:
+        data["title"] = title
+    if body is not None:
+        data["body"] = body
+    if not data:
+        return None
+    resp = requests.patch(
+        f"{GITHUB_API}/repos/{repo}/issues/{number}",
+        headers=_gh_headers(token),
+        json=data,
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()
+
+
+def github_list_issue_comments(token, repo, number):
+    """Return all comments on a GitHub issue, following pagination."""
+    comments = []
+    page = 1
+    while True:
+        resp = requests.get(
+            f"{GITHUB_API}/repos/{repo}/issues/{number}/comments",
+            headers=_gh_headers(token),
+            params={"per_page": 100, "page": page},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        batch = resp.json()
+        if not batch:
+            break
+        comments.extend(batch)
+        if len(batch) < 100:
+            break
+        page += 1
+    return comments
+
+
+def github_create_issue_comment(token, repo, number, body):
+    resp = requests.post(
+        f"{GITHUB_API}/repos/{repo}/issues/{number}/comments",
+        headers=_gh_headers(token),
+        json={"body": body},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()
 
 
 # ------------------------- GitHub Projects (v2) ---------------------------- #
@@ -699,6 +808,124 @@ def build_body(task):
     return "\n\n".join(parts)
 
 
+def build_github_comment_from_story(story):
+    """Format an Asana comment story as a GitHub issue comment body."""
+    author = (story.get("created_by") or {}).get("name") or "Asana"
+    created = (story.get("created_at") or "")[:10]
+    text = (story.get("text") or "").strip()
+    header = f"**{author}** commented in Asana"
+    if created:
+        header += f" ({created})"
+    header += ":"
+    return f"{header}\n\n{text}\n\n{STORY_MARKER_TEMPLATE.format(gid=story['gid'])}"
+
+
+def synced_asana_story_gids(comments):
+    """Return Asana story GIDs already present on GitHub comments."""
+    gids = set()
+    for comment in comments:
+        gids.update(STORY_MARKER_RE.findall(comment.get("body") or ""))
+    return gids
+
+
+def reconcile_github_issue_from_asana(token, repo, task, issue, *, dry_run=False):
+    """
+    Update the GitHub issue title and body when they differ from the Asana task.
+
+    Returns a list of short action strings (empty when already in sync).
+    """
+    actions = []
+    desired_title = task.get("name") or "(untitled Asana task)"
+    desired_body = build_body(task)
+    patch = {}
+    if (issue.get("title") or "") != desired_title:
+        patch["title"] = desired_title
+        actions.append(f"update title to {desired_title!r}")
+    if (issue.get("body") or "").strip() != desired_body.strip():
+        patch["body"] = desired_body
+        actions.append("update body from Asana")
+    if patch and not dry_run:
+        github_update_issue(token, repo, issue["number"], **patch)
+        issue.update(patch)
+    return actions
+
+
+def sync_asana_comments_to_github(asana_token, gh_token, repo, task, issue, *, dry_run=False):
+    """
+    Copy Asana task comments onto the GitHub issue when they are not already there.
+
+    Returns a short status string, or None when there is nothing to copy.
+    """
+    stories = asana_list_comment_stories(asana_token, task["gid"])
+    if not stories:
+        return None
+
+    existing = github_list_issue_comments(gh_token, repo, issue["number"])
+    already = synced_asana_story_gids(existing)
+    pending = [story for story in stories if story["gid"] not in already]
+    if not pending:
+        return None
+
+    if dry_run:
+        return f"would copy {len(pending)} comment(s)"
+
+    copied = 0
+    for story in pending:
+        github_create_issue_comment(
+            gh_token,
+            repo,
+            issue["number"],
+            build_github_comment_from_story(story),
+        )
+        copied += 1
+        time.sleep(0.25)
+    return f"copied {copied} comment(s)"
+
+
+def reconcile_existing_issue(
+    asana_token,
+    gh_token,
+    repo,
+    task,
+    issue,
+    field_gid,
+    *,
+    dry_run=False,
+    update_content=True,
+):
+    """
+    Reconcile an existing GitHub issue with its Asana task.
+
+    Updates title/body when they drifted, writes the issue number and URL
+    back to Asana, and copies missing Asana comments onto the issue.
+    """
+    actions = []
+    if update_content:
+        actions.extend(reconcile_github_issue_from_asana(gh_token, repo, task, issue, dry_run=dry_run))
+    link_status = reconcile_asana_github_link(
+        asana_token,
+        task,
+        issue,
+        field_gid,
+        dry_run=dry_run,
+    )
+    if link_status != "already linked":
+        actions.append(link_status)
+    comment_status = sync_asana_comments_to_github(
+        asana_token,
+        gh_token,
+        repo,
+        task,
+        issue,
+        dry_run=dry_run,
+    )
+    if comment_status:
+        actions.append(comment_status)
+    if not actions:
+        return "already linked"
+    return ", ".join(actions)
+
+
 def enrich_created_issue(token, repo, issue, task, *, mode=None):
     """Optional post-create hook. Default mode ``off`` is a no-op (no extra HTTP)."""
     chosen = (mode if mode is not None else cfg.a2g_enrichment) or "off"
@@ -759,21 +986,19 @@ def main(argv=None):
             logger.info(f"Linking new issues to Projects v2 board {project_owner}/#{project_number}.")
 
     github_issue_field_gid = None
+    github_issue_field_name = DEFAULT_GITHUB_ISSUE_FIELD_NAME
     if not project_only:
         github_issue_field_gid = cfg.asana_github_issue_field_gid
         if not github_issue_field_gid:
-            github_issue_field_gid = asana_find_custom_field_gid(
-                asana_token, project_gid, DEFAULT_GITHUB_ISSUE_FIELD_NAME
-            )
+            github_issue_field_gid, github_issue_field_name = asana_find_github_issue_field(asana_token, project_gid)
         if github_issue_field_gid:
             logger.info(
-                f"Writing issue numbers back to Asana field "
-                f"{DEFAULT_GITHUB_ISSUE_FIELD_NAME!r} ({github_issue_field_gid})."
+                f"Writing issue numbers back to Asana field {github_issue_field_name!r} ({github_issue_field_gid})."
             )
         else:
             logger.warning(
-                f"Warning: Asana custom field {DEFAULT_GITHUB_ISSUE_FIELD_NAME!r} "
-                "not found; issue numbers will not be written back."
+                "Asana custom field 'GitHub Issue #' / 'GitHub Issue' was not found; "
+                "issue numbers will not be written back. The issue URL will still be attached."
             )
 
     logger.info("Loading existing items to avoid duplicates...")
@@ -802,23 +1027,22 @@ def main(argv=None):
         if not project_only:
             issue = existing_issues.get(gid)
             if issue:
-                if github_issue_field_gid:
-                    try:
-                        status = reconcile_asana_github_link(
-                            asana_token,
-                            task,
-                            issue,
-                            github_issue_field_gid,
-                            dry_run=dry_run,
-                        )
-                        logger.info(f"Existing #{issue['number']}: {name} -> {status}")
-                        if status != "already linked":
-                            linked += 1
-                    except (requests.HTTPError, RuntimeError) as exc:
-                        detail = _http_error_detail(exc) if isinstance(exc, requests.HTTPError) else str(exc)
-                        logger.error(f"  ! failed to link Asana task for '{name}': {detail}")
-                else:
-                    logger.info(f"Existing #{issue['number']}: {name} (no Asana field to update)")
+                try:
+                    status = reconcile_existing_issue(
+                        asana_token,
+                        gh_token,
+                        repo,
+                        task,
+                        issue,
+                        github_issue_field_gid,
+                        dry_run=dry_run,
+                    )
+                    logger.info(f"Existing #{issue['number']}: {name} -> {status}")
+                    if status != "already linked":
+                        linked += 1
+                except (requests.HTTPError, RuntimeError) as exc:
+                    detail = _http_error_detail(exc) if isinstance(exc, requests.HTTPError) else str(exc)
+                    logger.error(f"  ! failed to reconcile '{name}': {detail}")
                 skipped += 1
                 continue
 
@@ -830,6 +1054,8 @@ def main(argv=None):
                 logger.info(f"[dry-run] would create issue: {name}")
                 if github_issue_field_gid:
                     logger.info("  [dry-run] would set GitHub Issue # and attach issue URL")
+                else:
+                    logger.info("  [dry-run] would attach issue URL")
                 created += 1
                 continue
 
@@ -847,20 +1073,22 @@ def main(argv=None):
                 except Exception as exc:  # noqa: BLE001 - report and continue
                     logger.error(f"  ! could not add to project board: {exc}")
 
-            if github_issue_field_gid:
-                try:
-                    status = reconcile_asana_github_link(
-                        asana_token,
-                        task,
-                        issue,
-                        github_issue_field_gid,
-                        dry_run=False,
-                    )
-                    logger.info(f"  Asana: {status}")
-                    linked += 1
-                except (requests.HTTPError, RuntimeError) as exc:
-                    detail = _http_error_detail(exc) if isinstance(exc, requests.HTTPError) else str(exc)
-                    logger.error(f"  ! failed to link Asana task: {detail}")
+            try:
+                status = reconcile_existing_issue(
+                    asana_token,
+                    gh_token,
+                    repo,
+                    task,
+                    issue,
+                    github_issue_field_gid,
+                    dry_run=False,
+                    update_content=False,
+                )
+                logger.info(f"  Asana: {status}")
+                linked += 1
+            except (requests.HTTPError, RuntimeError) as exc:
+                detail = _http_error_detail(exc) if isinstance(exc, requests.HTTPError) else str(exc)
+                logger.error(f"  ! failed to link Asana task: {detail}")
 
             created += 1
             time.sleep(0.5)  # stay under GitHub's secondary rate limits
