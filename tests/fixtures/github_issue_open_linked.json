@@ -1,0 +1,9 @@
+{
+  "number": 42,
+  "title": "Usage Tracking",
+  "body": "Ship usage tracking for the dashboard.\n\n[View in Asana](https://app.asana.com/0/111222333/444555666)\n\n<!-- asana-task-gid:444555666 -->",
+  "state": "open",
+  "html_url": "https://github.com/owner/repo/issues/42",
+  "node_id": "I_test42",
+  "labels": []
+}

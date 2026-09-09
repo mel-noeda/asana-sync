@@ -1,0 +1,9 @@
+{
+  "number": 99,
+  "title": "Unrelated bug",
+  "body": "No Asana marker in this issue.",
+  "state": "closed",
+  "html_url": "https://github.com/owner/repo/issues/99",
+  "node_id": "I_test99",
+  "labels": []
+}

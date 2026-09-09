@@ -3,12 +3,6 @@ name: Asana sync
 on:
   schedule:
     - cron: '0 * * * *'   # every hour, on the hour (UTC)
-  push:
-    branches: [main, master]
-  issues:
-    types: [edited, labeled, unlabeled, assigned, reopened, closed]
-  pull_request:
-    types: [opened, edited, synchronize, reopened, labeled, ready_for_review]
   workflow_dispatch:
     inputs:
       asana_project_gid:

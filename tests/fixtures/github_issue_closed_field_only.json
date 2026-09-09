@@ -1,0 +1,9 @@
+{
+  "number": 42,
+  "title": "Usage Tracking",
+  "body": "Ship usage tracking for the dashboard.",
+  "state": "closed",
+  "html_url": "https://github.com/owner/repo/issues/42",
+  "node_id": "I_test42",
+  "labels": []
+}

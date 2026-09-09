@@ -171,5 +171,10 @@ class Config:
     def log_level(self) -> str:
         return (_get("LOG_LEVEL") or "INFO").upper()
 
+    @cached_property
+    def a2g_enrichment(self) -> str:
+        """Post-create hook mode. Default off — no extra GitHub or Asana writes."""
+        return (_get("A2G_ENRICHMENT") or "off").strip().lower()
+
 
 cfg = Config()

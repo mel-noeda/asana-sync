@@ -73,6 +73,7 @@ Optional:
 - `--sync-completed` / `SYNC_COMPLETED=true` — A2G also pulls completed Asana tasks
 - `DEFAULT_LABELS` — comma-separated labels for A2G repo issues
 - `ASANA_GITHUB_ISSUE_FIELD_GID` — override for the `GitHub Issue #` custom field
+- `A2G_ENRICHMENT` — reserved post-create hook (`off` by default; other values log and do nothing)
 
 ### Asana → GitHub
 
@@ -124,7 +125,7 @@ You can start a run from the GitHub UI (**Actions → the workflow → Run workf
 
 ### Asana sync (`asana-sync.yml`)
 
-Runs the action with `mode: a2g`. GitHub also starts this workflow on an hourly schedule, on push to `main` or `master`, and on selected issue and pull request events.
+Runs the action with `mode: a2g`. GitHub starts this workflow on an hourly schedule and on `workflow_dispatch`. It does not run on push, issue, or pull request events.
 
 ```bash
 gh workflow run asana-sync.yml

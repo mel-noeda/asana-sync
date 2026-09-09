@@ -6,6 +6,7 @@ Push a GitHub issue/PR update into the linked Asana task.
 
 Designed for fast, targeted sync from GitHub Actions on issue/PR events:
 fetch one issue by number, resolve its Asana task, and update that task only.
+Issues with no linked Asana task are skipped (exit 0).
 
 Also syncs GitHub Projects v2 Status (board column) → Asana project section.
 
@@ -707,7 +708,7 @@ def main(argv=None):
             time.sleep(0.2)
 
         print(f"\nDone. synced={synced}, skipped={skipped}, failed={failed}.")
-        return
+        return 0
 
     issue_number = args.issue_flag or args.issue or config.github_issue_number
     if not issue_number:
@@ -747,12 +748,10 @@ def main(argv=None):
         sys.exit(f"Sync failed: {detail}")
 
     if not ok:
-        sys.exit(
-            f"No linked Asana task for {repo}#{issue_number}. "
-            "Expected an <!-- asana-task-gid:... --> marker in the issue body, "
-            f"or a task with {DEFAULT_GITHUB_ISSUE_FIELD_NAME!r} = {issue_number}."
-        )
+        print(f"{repo}#{issue_number}: skipped ({message})")
+        return 0
     print(message)
+    return 0
 
 
 if __name__ == "__main__":

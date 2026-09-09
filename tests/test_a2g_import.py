@@ -135,3 +135,28 @@ def test_missing_github_issue_field_still_creates_without_writeback(http, sync_e
     assert calls_matching(http, "POST", f"{ASANA_BASE}/attachments") == []
     assert "GitHub Issue #" in caplog.text
     assert "not found" in caplog.text
+
+
+def test_a2g_enrichment_defaults_to_off(sync_env):
+    assert cfg.a2g_enrichment == "off"
+
+
+def test_enrichment_off_makes_no_extra_http(http, sync_env, skip_validate):
+    from asana_sync.asana_to_github import enrich_created_issue
+
+    task = load_fixture("asana_task_in_progress.json")
+    stub_github_issue_list(http, [])
+    stub_asana_sections(http)
+    stub_asana_section_tasks(http, "sec-in-progress", [task])
+    stub_create_issue(http)
+    stub_reconcile(http, TASK_IN_PROGRESS_GID)
+
+    run_a2g(*A2G_GATE)
+
+    assert len(calls_matching(http, "POST", f"{REPO}/issues")) == 1
+    assert calls_matching(http, "POST", f"{REPO}/issues/42/comments") == []
+    assert calls_matching(http, "POST", f"{REPO}/issues/42/sub_issues") == []
+
+    before = len(http.calls)
+    enrich_created_issue("gh-test-token", REPO, {"number": 42}, task, mode="off")
+    assert len(http.calls) == before

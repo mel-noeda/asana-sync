@@ -1,0 +1,51 @@
+{
+  "data": [
+    {
+      "custom_field": {
+        "name": "GitHub Issue #",
+        "gid": "fld-gh",
+        "resource_subtype": "text"
+      }
+    },
+    {
+      "custom_field": {
+        "name": "Labels",
+        "gid": "fld-labels",
+        "resource_subtype": "multi_enum",
+        "enum_options": [
+          {"name": "needs-docs", "gid": "opt-docs", "enabled": true},
+          {"name": "enhancement", "gid": "opt-enh", "enabled": true}
+        ]
+      }
+    },
+    {
+      "custom_field": {
+        "name": "Issue Type",
+        "gid": "fld-type",
+        "resource_subtype": "enum",
+        "enum_options": [
+          {"name": "bug", "gid": "opt-type-bug", "enabled": true},
+          {"name": "feature", "gid": "opt-type-feat", "enabled": true}
+        ]
+      }
+    },
+    {
+      "custom_field": {
+        "name": "Priority",
+        "gid": "fld-priority",
+        "resource_subtype": "enum",
+        "enum_options": [
+          {"name": "P1", "gid": "opt-p1", "enabled": true},
+          {"name": "high", "gid": "opt-high", "enabled": true}
+        ]
+      }
+    },
+    {
+      "custom_field": {
+        "name": "Story Points",
+        "gid": "fld-points",
+        "resource_subtype": "number"
+      }
+    }
+  ]
+}

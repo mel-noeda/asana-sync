@@ -40,7 +40,9 @@ Token scopes and local setup are in [USAGE.md](USAGE.md).
 
 ### Asana → GitHub
 
-Run one A2G invocation per Asana project. Each row creates issues in the configured GitHub repo when the task sits in the named Asana section (default example: `In Progress`). GitHub Projects is optional.
+A2G is a **scheduled import** (plus manual `workflow_dispatch`). It does not run on GitHub issue, pull request, or push events. Those belong to G2A.
+
+Run one A2G invocation per Asana project. Each row creates a GitHub issue only when the Asana task matches the configured gate (section name, or a custom field such as Status = `In Progress`). Completed tasks are skipped unless `sync_completed` is set. A re-run does not create a second issue for the same Asana GID. GitHub Projects is optional.
 
 ```yaml
 # .github/workflows/asana-to-github.yml
@@ -73,7 +75,9 @@ To call the composite action from a single job instead, see [`examples/asana-to-
 
 ### GitHub → Asana
 
-Issue and pull request events sync that item. A two-minute schedule reconciles Projects **Status** into Asana sections. Actions cannot trigger on `projects_v2_item`; the schedule is the built-in stopgap for column moves.
+Issue and pull request events sync that item. An issue with no linked Asana task is skipped and the job exits 0, so the workflow can run on every issue event. When the GitHub issue is closed and a link exists, G2A sets the Asana task `completed=true`. Title, notes, labels, and optional Projects Status → Asana section still sync as supported extras.
+
+A two-minute schedule reconciles Projects **Status** into Asana sections. Actions cannot trigger on `projects_v2_item`; the schedule is the built-in stopgap for column moves.
 
 The full starter, including mode resolution, is [examples/github-to-asana.yml](examples/github-to-asana.yml).
 

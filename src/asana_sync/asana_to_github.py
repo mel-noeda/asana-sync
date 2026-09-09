@@ -49,6 +49,8 @@ Optional environment variables:
     DEFAULT_LABELS          Comma-separated labels for repo issues only
     DRY_RUN                 "true" to preview without creating anything
                             CLI: --dry-run
+    A2G_ENRICHMENT          Post-create hook (`off` by default). Other values
+                            log and do nothing until a provider is added.
 
 Usage:
     uv run A2G --repo owner/repo --section "In Progress"
@@ -697,6 +699,17 @@ def build_body(task):
     return "\n\n".join(parts)
 
 
+def enrich_created_issue(token, repo, issue, task, *, mode=None):
+    """Optional post-create hook. Default mode ``off`` is a no-op (no extra HTTP)."""
+    chosen = (mode if mode is not None else cfg.a2g_enrichment) or "off"
+    if chosen == "off":
+        return
+    logger.info(
+        f"Enrichment mode {chosen!r} is not implemented; skipping "
+        f"#{issue.get('number')} for Asana task {task.get('gid')}."
+    )
+
+
 def main(argv=None):
     args = parse_args(argv)
     logger.info(f"Starting with log level {cfg.log_level}.")
@@ -827,6 +840,7 @@ def main(argv=None):
                 continue
 
             logger.info(f"Created #{issue['number']}: {name} -> {issue['html_url']}")
+            enrich_created_issue(gh_token, repo, issue, task)
             if project_node_id:
                 try:
                     add_issue_to_project(gh_token, project_node_id, issue["node_id"])

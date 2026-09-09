@@ -22,6 +22,7 @@ FIELD_GITHUB_ISSUE = "fld-gh"
 FIELD_STATUS = "fld-status"
 SECTION_IN_PROGRESS = "sec-in-progress"
 SECTION_BACKLOG = "sec-backlog"
+WORKSPACE_GID = "ws-1"
 ISSUE_URL = "https://github.com/owner/repo/issues/42"
 
 
@@ -52,6 +53,9 @@ def sync_env(monkeypatch):
     monkeypatch.delenv("SYNC_COMPLETED", raising=False)
     monkeypatch.delenv("DRY_RUN", raising=False)
     monkeypatch.delenv("DEFAULT_LABELS", raising=False)
+    monkeypatch.delenv("A2G_ENRICHMENT", raising=False)
+    monkeypatch.delenv("GITHUB_PROJECT_STATUS", raising=False)
+    monkeypatch.delenv("COLUMNS_ONLY", raising=False)
     cfg.__dict__.clear()
     yield
     cfg.__dict__.clear()
@@ -69,6 +73,13 @@ def run_a2g(*args: str) -> None:
     from asana_sync.asana_to_github import main
 
     main(list(args))
+
+
+def run_g2a(*args: str):
+    """Run the G2A CLI with the given argv (no program name). Returns main()'s value."""
+    from asana_sync.github_to_asana import main
+
+    return main(list(args))
 
 
 def stub_github_issue_list(http: responses.RequestsMock, issues: list[dict]) -> None:
@@ -159,6 +170,57 @@ def stub_reconcile(
             json={"data": {"gid": "att-1"}},
             status=201,
         )
+
+
+def stub_asana_project(http: responses.RequestsMock, workspace_gid: str = WORKSPACE_GID) -> None:
+    http.add(
+        responses.GET,
+        f"{ASANA_BASE}/projects/{PROJECT_GID}",
+        json={"data": {"gid": PROJECT_GID, "workspace": {"gid": workspace_gid}}},
+        status=200,
+    )
+
+
+def stub_github_get_issue(http: responses.RequestsMock, issue: dict) -> None:
+    http.add(
+        responses.GET,
+        f"{GITHUB_API}/repos/{REPO}/issues/{issue['number']}",
+        json=issue,
+        status=200,
+    )
+
+
+def stub_asana_update_task(http: responses.RequestsMock, task_gid: str) -> None:
+    http.add(
+        responses.PUT,
+        f"{ASANA_BASE}/tasks/{task_gid}",
+        json={"data": {"gid": task_gid}},
+        status=200,
+    )
+
+
+def stub_asana_search(http: responses.RequestsMock, tasks: list[dict], workspace_gid: str = WORKSPACE_GID) -> None:
+    http.add(
+        responses.GET,
+        f"{ASANA_BASE}/workspaces/{workspace_gid}/tasks/search",
+        json={"data": tasks},
+        status=200,
+    )
+
+
+def stub_asana_add_task(http: responses.RequestsMock, section_gid: str) -> None:
+    http.add(
+        responses.POST,
+        f"{ASANA_BASE}/sections/{section_gid}/addTask",
+        json={"data": {}},
+        status=200,
+    )
+
+
+def g2a_prereqs(http: responses.RequestsMock) -> None:
+    """Asana field settings + project workspace that G2A main() always fetches."""
+    stub_custom_field_settings(http)
+    stub_asana_project(http)
 
 
 def calls_matching(http: responses.RequestsMock, method: str, url_part: str) -> list:
