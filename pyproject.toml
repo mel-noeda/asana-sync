@@ -10,16 +10,16 @@ dependencies = [
 ]
 
 [project.scripts]
-A2G = "asana_to_github:main"
-G2A = "github_to_asana:main"
-delete-issues = "delete_issues:main"
+A2G = "asana_sync.asana_to_github:main"
+G2A = "asana_sync.github_to_asana:main"
+delete-issues = "asana_sync.delete_issues:main"
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-only-include = ["asana_to_github.py", "github_to_asana.py", "config.py", "log.py", "delete_issues.py", "cfg.py", "asana_columns.py"]
+packages = ["src/asana_sync"]
 
 [dependency-groups]
 dev = [
@@ -29,7 +29,6 @@ dev = [
 ]
 
 [tool.pytest.ini_options]
-pythonpath = ["."]
 testpaths = ["tests"]
 
 [tool.basedpyright]
@@ -55,7 +54,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["asana_columns", "asana_to_github", "cfg", "config", "delete_issues", "github_to_asana", "log"]
+known-first-party = ["asana_sync"]
 
 [tool.ruff.format]
 quote-style = "double"

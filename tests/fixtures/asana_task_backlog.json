@@ -1,0 +1,21 @@
+{
+  "gid": "444555777",
+  "name": "Backlog idea",
+  "notes": "Not ready to import.",
+  "completed": false,
+  "permalink_url": "https://app.asana.com/0/111222333/444555777",
+  "custom_fields": [
+    {
+      "gid": "fld-status",
+      "name": "Status",
+      "text_value": "Backlog",
+      "display_value": "Backlog"
+    },
+    {
+      "gid": "fld-gh",
+      "name": "GitHub Issue #",
+      "text_value": null,
+      "display_value": null
+    }
+  ]
+}

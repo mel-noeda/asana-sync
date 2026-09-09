@@ -62,9 +62,9 @@ import time
 
 import requests
 
-from asana_columns import match_named_value, parse_section_names, resolve_sections
-from cfg import cfg, normalize_asana_gid
-from log import configure_logging, get_logger
+from asana_sync.asana_columns import match_named_value, parse_section_names, resolve_sections
+from asana_sync.cfg import cfg, normalize_asana_gid
+from asana_sync.log import configure_logging, get_logger
 
 configure_logging()
 logger = get_logger(__name__, __file__)

@@ -1,6 +1,6 @@
-"""Smoke tests that the flat-layout modules import and column matching works."""
+"""Smoke tests that the packaged modules import and column matching works."""
 
-from asana_columns import match_asana_section, normalize_column_key
+from asana_sync.asana_columns import match_asana_section, normalize_column_key
 
 
 def test_normalize_column_key_collapses_punctuation_and_case():

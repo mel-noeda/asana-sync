@@ -58,8 +58,8 @@ import time
 
 import requests
 
-from asana_columns import match_asana_section, normalize_column_key
-from config import config
+from asana_sync.asana_columns import match_asana_section, normalize_column_key
+from asana_sync.config import config
 
 ASANA_BASE = "https://app.asana.com/api/1.0"
 GITHUB_API = "https://api.github.com"

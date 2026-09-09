@@ -1,6 +1,6 @@
 """Compatibility alias so callers can import `config` or `cfg`."""
 
-from cfg import Config, cfg
+from asana_sync.cfg import Config, cfg
 
 config = cfg
 

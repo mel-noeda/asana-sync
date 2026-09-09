@@ -1,7 +1,9 @@
+"""Console logging helpers shared by the Asana ↔ GitHub CLIs."""
+
 import logging
 from pathlib import Path
 
-from cfg import cfg
+from asana_sync.cfg import cfg
 
 
 class ModuleLoggerAdapter(logging.LoggerAdapter):

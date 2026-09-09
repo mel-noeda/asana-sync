@@ -13,8 +13,8 @@ import sys
 
 import requests
 
-from cfg import cfg
-from log import configure_logging, get_logger
+from asana_sync.cfg import cfg
+from asana_sync.log import configure_logging, get_logger
 
 configure_logging()
 logger = get_logger(__name__, __file__)

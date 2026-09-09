@@ -1,0 +1,10 @@
+{
+  "data": [
+    {
+      "custom_field": {
+        "name": "Status",
+        "gid": "fld-status"
+      }
+    }
+  ]
+}

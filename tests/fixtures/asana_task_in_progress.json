@@ -1,0 +1,23 @@
+{
+  "gid": "444555666",
+  "name": "Usage Tracking",
+  "notes": "Ship usage tracking for the dashboard.",
+  "completed": false,
+  "permalink_url": "https://app.asana.com/0/111222333/444555666",
+  "assignee": {"name": "Ada Lovelace"},
+  "due_on": "2026-09-15",
+  "custom_fields": [
+    {
+      "gid": "fld-status",
+      "name": "Status",
+      "text_value": "In Progress",
+      "display_value": "In Progress"
+    },
+    {
+      "gid": "fld-gh",
+      "name": "GitHub Issue #",
+      "text_value": null,
+      "display_value": null
+    }
+  ]
+}
