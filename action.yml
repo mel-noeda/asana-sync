@@ -76,11 +76,11 @@ runs:
   using: composite
   steps:
     - name: Install uv
-      uses: astral-sh/setup-uv@v6
+      uses: astral-sh/setup-uv@v10.0.1
       with:
         enable-cache: true
         working-directory: ${{ github.action_path }}
-        python-version-file: ${{ github.action_path }}/.python-version
+        ignore-empty-workdir: true
 
     - name: Install dependencies
       shell: bash
