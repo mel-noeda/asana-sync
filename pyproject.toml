@@ -24,7 +24,13 @@ only-include = ["asana_to_github.py", "github_to_asana.py", "config.py", "log.py
 [dependency-groups]
 dev = [
     "ruff",
+    "pytest",
+    "responses",
 ]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
 
 [tool.basedpyright]
 venvPath = "."
