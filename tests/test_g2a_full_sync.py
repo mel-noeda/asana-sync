@@ -19,9 +19,12 @@ from tests.conftest import (
     TASK_IN_PROGRESS_GID,
     WORKSPACE_GID,
     calls_matching,
+    g2a_prereqs,
     load_fixture,
+    run_g2a,
     stub_asana_add_task,
     stub_asana_update_task,
+    stub_github_issue_list,
 )
 
 FIELD_LABELS = "fld-labels"
@@ -139,6 +142,38 @@ def test_projects_status_done_completes_even_if_github_issue_is_open(http, sync_
     assert ok
     puts = calls_matching(http, "PUT", f"{ASANA_BASE}/tasks/{TASK_IN_PROGRESS_GID}")
     assert json.loads(puts[0].request.body)["data"]["completed"] is True
+
+
+def test_all_items_without_project_syncs_repo_issues(http, sync_env, monkeypatch):
+    monkeypatch.setattr("asana_sync.github_to_asana.time.sleep", lambda _seconds: None)
+    issue = _issue()
+    g2a_prereqs(http)
+    stub_github_issue_list(http, [issue])
+    stub_asana_update_task(http, TASK_IN_PROGRESS_GID)
+
+    result = run_g2a("--all-project-items")
+
+    assert result == 0
+    puts = calls_matching(http, "PUT", f"{ASANA_BASE}/tasks/{TASK_IN_PROGRESS_GID}")
+    assert len(puts) == 1
+    payload = json.loads(puts[0].request.body)["data"]
+    assert payload["name"] == issue["title"]
+    assert payload["completed"] is False
+
+
+def test_all_items_without_project_requires_repo(http, sync_env, monkeypatch):
+    monkeypatch.delenv("GITHUB_REPO", raising=False)
+    from asana_sync.cfg import cfg
+
+    cfg.__dict__.clear()
+    g2a_prereqs(http)
+
+    try:
+        run_g2a("--all-project-items")
+    except SystemExit as exc:
+        assert "GITHUB_REPO" in str(exc)
+    else:
+        raise AssertionError("expected SystemExit when GITHUB_REPO is unset")
 
 
 def test_unmatched_section_skips_column_move_but_still_completes(http, sync_env):

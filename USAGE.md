@@ -38,10 +38,10 @@ If the owning organization requires SAML single sign-on (SSO), authorize the PAT
 - Classic PAT: `repo`. Add `project` when you also link issues onto a Projects board.
 - Fine-grained PAT: Issues **Read and write** on the target repository. Add Projects **Read and write** when you link a board.
 
-**G2A** only reads GitHub (issue or pull request, plus Projects **Status**). Grant:
+**G2A** only reads GitHub (issue or pull request). Grant:
 
-- Classic PAT: `repo` and `project`.
-- Fine-grained PAT: Issues **Read**, and Projects **Read**.
+- Classic PAT: `repo`. Add `project` only when you also sync Projects **Status**.
+- Fine-grained PAT: Issues **Read**. Add Projects **Read** only when you also sync Projects **Status**.
 
 ## Run locally
 
@@ -63,7 +63,7 @@ A2G destination:
 - Optional Projects link: `GITHUB_PROJECT_OWNER` and `GITHUB_PROJECT_NUMBER`
 - Project-only drafts: omit the repo and set the project variables
 
-G2A single-issue mode requires `GITHUB_REPO`. Column sync requires the project variables.
+G2A single-issue mode requires `GITHUB_REPO`. Bulk reconcile (`--all-project-items`) uses the Projects board when those variables are set; otherwise it syncs every issue in `GITHUB_REPO`. Column sync requires the project variables.
 
 Optional:
 
@@ -96,7 +96,13 @@ uv run G2A 42
 uv run G2A --issue 42
 ```
 
-Reconcile **Status** on every board item into the matching Asana section:
+Reconcile every issue in `GITHUB_REPO` (no Projects board required):
+
+```bash
+uv run G2A --all-project-items
+```
+
+When `GITHUB_PROJECT_OWNER` and `GITHUB_PROJECT_NUMBER` are set, the same flag uses the board instead. Reconcile **Status** on every board item into the matching Asana section:
 
 ```bash
 uv run G2A --all-project-items --columns-only
@@ -166,7 +172,7 @@ gh workflow run github-to-asana.yml \
   -f columns_only=true
 ```
 
-If you omit `issue_number` and leave `sync_all_project_items` unset, the workflow reconciles all project columns.
+If you omit `issue_number` and leave `sync_all_project_items` unset, the workflow reconciles all project columns, or all repo issues when Projects is unset.
 
 ### Near-real-time column moves
 

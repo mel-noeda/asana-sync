@@ -38,7 +38,7 @@ on:
   workflow_dispatch:
     inputs:
       issue_number:
-        description: "GitHub issue or PR number (leave empty to reconcile all project columns)"
+        description: "GitHub issue or PR number (leave empty to reconcile all items)"
         required: false
         type: string
       columns_only:
@@ -47,7 +47,7 @@ on:
         type: boolean
         default: false
       sync_all_project_items:
-        description: "Sync every Issue/PR on the Projects v2 board"
+        description: "Sync every Issue/PR on the Projects v2 board, or every repo issue when Projects is unset"
         required: false
         type: boolean
         default: false

@@ -36,10 +36,11 @@ Issue selection (one of):
             uv run G2A --all-project-items [--columns-only]
     Env:    GITHUB_ISSUE_NUMBER=42
 
-Also required for single-issue mode:
+Also required for single-issue mode, and for --all-project-items
+when no Projects board is configured:
     GITHUB_REPO           Repo as "owner/repo"
 
-For column sync (recommended):
+Optional column sync (Projects v2 Status → Asana section):
     GITHUB_PROJECT_OWNER  Projects v2 owner (org or user)
     GITHUB_PROJECT_NUMBER Projects v2 number
 
@@ -249,6 +250,24 @@ def iter_project_items(token, project_id):
         if not page.get("hasNextPage"):
             break
         cursor = page.get("endCursor")
+
+
+def iter_repo_issues(token, repo):
+    """Yield every issue and pull request in the repo (REST, paginated)."""
+    page = 1
+    while True:
+        resp = requests.get(
+            f"{GITHUB_API}/repos/{repo}/issues",
+            headers=_gh_headers(token),
+            params={"state": "all", "per_page": 100, "page": page},
+            timeout=30,
+        )
+        resp.raise_for_status()
+        batch = resp.json()
+        if not batch:
+            break
+        yield from batch
+        page += 1
 
 
 def issue_label_names(issue):
@@ -617,7 +636,7 @@ def parse_args(argv=None):
     parser.add_argument(
         "--all-project-items",
         action="store_true",
-        help="Sync every Issue/PR on the configured Projects v2 board",
+        help="Sync every Issue/PR on the Projects v2 board, or every repo issue when no board is set",
     )
     parser.add_argument(
         "--columns-only",
@@ -656,28 +675,46 @@ def main(argv=None):
         print("Note: set GITHUB_PROJECT_OWNER + GITHUB_PROJECT_NUMBER to sync Projects Status → Asana sections.")
 
     if all_items:
-        if not (project_owner and project_number):
-            sys.exit("--all-project-items requires GITHUB_PROJECT_OWNER and GITHUB_PROJECT_NUMBER")
-        project_id = get_project_node_id(gh_token, project_owner, project_number)
-        if not project_id:
-            sys.exit(f"Could not resolve Projects v2 board {project_owner}/#{project_number}")
+        if project_owner and project_number:
+            project_id = get_project_node_id(gh_token, project_owner, project_number)
+            if not project_id:
+                sys.exit(f"Could not resolve Projects v2 board {project_owner}/#{project_number}")
+            item_iter = iter_project_items(gh_token, project_id)
+            source_is_project = True
+        else:
+            repo = config.github_repo
+            if not repo:
+                sys.exit("--all-project-items without a Projects board requires GITHUB_REPO")
+            print(f"Reconciling all issues in {repo}.")
+            item_iter = (
+                {
+                    "repo": repo,
+                    "number": issue["number"],
+                    "status": None,
+                    "issue": issue,
+                }
+                for issue in iter_repo_issues(gh_token, repo)
+            )
+            source_is_project = False
 
         synced = skipped = failed = 0
-        for item in iter_project_items(gh_token, project_id):
+        for item in item_iter:
             repo = item["repo"]
             number = item["number"]
-            issue = {
-                "number": number,
-                "title": item["title"],
-                "body": item["body"],
-                "state": "closed" if item["state"] == "closed" else "open",
-                "labels": [],
-            }
-            if item["is_pr"]:
-                issue["pull_request"] = {}
+            issue = item.get("issue")
+            if issue is None:
+                issue = {
+                    "number": number,
+                    "title": item["title"],
+                    "body": item["body"],
+                    "state": "closed" if item["state"] == "closed" else "open",
+                    "labels": [],
+                }
+                if item.get("is_pr"):
+                    issue["pull_request"] = {}
 
-            # columns-only skips labels/body rewrite; full sync needs REST for labels
-            if not columns_only:
+            # Project items omit labels; full sync needs REST. Repo listing already has them.
+            if source_is_project and not columns_only:
                 try:
                     issue = github_get_issue(gh_token, repo, number)
                 except requests.HTTPError as exc:

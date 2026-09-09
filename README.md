@@ -3,7 +3,7 @@
 Two-way sync between Asana and GitHub:
 
 - **A2G** — pull Asana tasks into GitHub repository issues (a Projects board is optional)
-- **G2A** — push a GitHub issue or pull request into its linked Asana task, including the board column
+- **G2A** — push a GitHub issue or pull request into its linked Asana task. A Projects board is optional.
 
 Use this repository as a GitHub Action. Other repositories add a short workflow and secrets. They do not copy Python scripts.
 
@@ -75,9 +75,9 @@ To call the composite action from a single job instead, see [`examples/asana-to-
 
 ### GitHub → Asana
 
-Issue and pull request events sync that item. An issue with no linked Asana task is skipped and the job exits 0, so the workflow can run on every issue event. When the GitHub issue is closed and a link exists, G2A sets the Asana task `completed=true`. Title, notes, labels, and optional Projects Status → Asana section still sync as supported extras.
+Issue and pull request events sync that item. An issue with no linked Asana task is skipped and the job exits 0, so the workflow can run on every issue event. When the GitHub issue is closed and a link exists, G2A sets the Asana task `completed=true`. Title, notes, and labels still sync as supported extras. GitHub Projects is optional: when a board is configured, G2A also maps Projects Status → Asana section.
 
-A two-minute schedule reconciles Projects **Status** into Asana sections. Actions cannot trigger on `projects_v2_item`; the schedule is the built-in stopgap for column moves.
+A two-minute schedule reconciles Projects **Status** into Asana sections when a board is configured. Without a board, the schedule reconciles every issue in `github_repo`. Actions cannot trigger on `projects_v2_item`; the schedule is the built-in stopgap for column moves.
 
 The full starter, including mode resolution, is [examples/github-to-asana.yml](examples/github-to-asana.yml).
 
@@ -134,7 +134,7 @@ gh api repos/<owner>/<repo>/dispatches \
 | `default_labels` | no | Comma-separated labels for A2G repo issues |
 | `issue_number` | G2A single-item | Issue or pull request number |
 | `columns_only` | no | G2A only syncs Status → section |
-| `sync_all_project_items` | no | G2A syncs every board item |
+| `sync_all_project_items` | no | G2A syncs every board item, or every repo issue when Projects is unset |
 | `github_project_status` | no | Override Status; skips GraphQL lookup |
 | `asana_github_issue_field_gid` | no | Override for the `GitHub Issue #` or `GitHub Issue` field |
 

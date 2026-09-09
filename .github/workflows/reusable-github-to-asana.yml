@@ -14,7 +14,7 @@ on:
         required: false
         default: false
       sync_all_project_items:
-        description: Sync every Issue/PR on the Projects v2 board
+        description: Sync every Issue/PR on the Projects v2 board, or every repo issue when Projects is unset
         type: boolean
         required: false
         default: false
