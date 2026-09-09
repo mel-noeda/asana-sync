@@ -97,7 +97,7 @@ class Config:
         target repo is different, or when GitHub Projects is configured.
         """
         token = self.github_token
-        current = _get("GITHUB_REPOSITORY")
+        current = _get("GITHUB_REPOSITORY" ) or ""
         using_builtin = bool(current) and not _get("GH_TOKEN")
         if not using_builtin:
             return token
@@ -165,7 +165,7 @@ class Config:
 
     @cached_property
     def sync_all_project_items(self) -> bool:
-        return _bool("SYNC_ALL_PROJECT_ITEMS")
+        return _bool("SYNC_ALL_PROJECT_ITEMS", default=True)
 
     @cached_property
     def log_level(self) -> str:

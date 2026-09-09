@@ -63,6 +63,10 @@ import requests
 from asana_sync.asana_columns import match_asana_section, normalize_column_key
 from asana_sync.asana_to_github import GITHUB_ISSUE_FIELD_NAMES
 from asana_sync.config import config
+from asana_sync.log import configure_logging, get_logger
+
+configure_logging()
+logger = get_logger(__name__, __file__)
 
 ASANA_BASE = "https://app.asana.com/api/1.0"
 GITHUB_API = "https://api.github.com"
@@ -98,13 +102,21 @@ def _gh_headers(token):
 def _http_error_detail(exc: requests.HTTPError) -> str:
     resp = exc.response
     detail = str(exc)
-    if resp is not None:
-        try:
-            message = resp.json().get("message")
-        except ValueError:
-            message = None
-        if message:
-            detail = f"{exc} ({message})"
+    if resp is None:
+        return detail
+    try:
+        payload = resp.json()
+    except ValueError:
+        return detail
+    message = payload.get("message")
+    if not message:
+        errors = payload.get("errors") or []
+        messages = [
+            err.get("message") for err in errors if isinstance(err, dict) and err.get("message")
+        ]
+        message = "; ".join(messages) if messages else None
+    if message:
+        return f"{exc} ({message})"
     return detail
 
 
@@ -400,6 +412,22 @@ def asana_find_task_by_issue_number(token, workspace_gid, project_gid, field_gid
     return tasks[0] if tasks else None
 
 
+def asana_get_task(token, task_gid):
+    resp = requests.get(
+        f"{ASANA_BASE}/tasks/{task_gid}",
+        headers=_asana_headers(token),
+        params={
+            "opt_fields": (
+                "gid,name,projects.gid,custom_fields.gid,custom_fields.name,"
+                "custom_fields.resource_subtype"
+            )
+        },
+        timeout=30,
+    )
+    resp.raise_for_status()
+    return resp.json()["data"]
+
+
 def asana_update_task(token, task_gid, data):
     resp = requests.put(
         f"{ASANA_BASE}/tasks/{task_gid}",
@@ -409,6 +437,25 @@ def asana_update_task(token, task_gid, data):
     )
     resp.raise_for_status()
     return resp.json()["data"]
+
+
+def github_issue_field_gid_on_task(task, configured_gid=None):
+    """Prefer the configured GID when the task has it; else the task's own GitHub Issue field."""
+    fields = [field for field in (task.get("custom_fields") or []) if field.get("gid")]
+    present = {field["gid"] for field in fields}
+    if configured_gid and configured_gid in present:
+        return configured_gid
+    by_name = {field.get("name"): field["gid"] for field in fields if field.get("name")}
+    for name in GITHUB_ISSUE_FIELD_NAMES:
+        if name in by_name:
+            return by_name[name]
+    return configured_gid
+
+
+def filter_custom_fields_for_task(custom_fields, task):
+    """Drop field GIDs that are not on the task (other Asana projects reject them with 400)."""
+    present = {field.get("gid") for field in (task.get("custom_fields") or []) if field.get("gid")}
+    return {gid: value for gid, value in custom_fields.items() if gid in present}
 
 
 def map_labels_to_custom_fields(label_names, fields_by_name):
@@ -528,7 +575,7 @@ def resolve_status_name(gh_token, repo, issue, project_owner, project_number):
         )
     except (requests.HTTPError, RuntimeError) as exc:
         detail = _http_error_detail(exc) if isinstance(exc, requests.HTTPError) else str(exc)
-        print(f"Warning: could not read Projects Status for #{issue['number']}: {detail}")
+        logger.error(f"Could not read Projects Status for #{issue['number']}: {detail}")
         return None
 
 
@@ -670,9 +717,9 @@ def main(argv=None):
     sections = None
     if project_owner and project_number:
         sections = asana_list_sections(asana_token, asana_project_gid)
-        print(f"Column sync enabled for {project_owner}/#{project_number} → {len(sections)} Asana section(s).")
+        logger.info(f"Column sync enabled for {project_owner}/#{project_number} → {len(sections)} Asana section(s).")
     else:
-        print("Note: set GITHUB_PROJECT_OWNER + GITHUB_PROJECT_NUMBER to sync Projects Status → Asana sections.")
+        logger.debug("Set GITHUB_PROJECT_OWNER + GITHUB_PROJECT_NUMBER to sync Projects Status → Asana sections.")
 
     if all_items:
         if project_owner and project_number:
@@ -685,7 +732,7 @@ def main(argv=None):
             repo = config.github_repo
             if not repo:
                 sys.exit("--all-project-items without a Projects board requires GITHUB_REPO")
-            print(f"Reconciling all issues in {repo}.")
+            logger.info(f"Reconciling all issues in {repo}.")
             item_iter = (
                 {
                     "repo": repo,
@@ -718,7 +765,7 @@ def main(argv=None):
                 try:
                     issue = github_get_issue(gh_token, repo, number)
                 except requests.HTTPError as exc:
-                    print(f"  ! {repo}#{number}: {_http_error_detail(exc)}")
+                    logger.error(f"  ! {repo}#{number}: {_http_error_detail(exc)}")
                     failed += 1
                     continue
 
@@ -741,19 +788,21 @@ def main(argv=None):
                 )
             except (requests.HTTPError, RuntimeError) as exc:
                 detail = _http_error_detail(exc) if isinstance(exc, requests.HTTPError) else str(exc)
-                print(f"  ! {repo}#{number}: {detail}")
+                logger.error(f"  ! {repo}#{number}: {detail}")
                 failed += 1
                 continue
 
             if ok:
-                print(f"{repo}#{number}: {message}")
+                logger.info(f"{repo}#{number}: {message}")
                 synced += 1
             else:
-                print(f"{repo}#{number}: skipped ({message})")
+                logger.info(f"{repo}#{number}: skipped ({message})")
                 skipped += 1
             time.sleep(0.2)
 
-        print(f"\nDone. synced={synced}, skipped={skipped}, failed={failed}.")
+        logger.info(f"\nDone. synced={synced}, skipped={skipped}, failed={failed}.")
+        if failed > 0:
+            return 1
         return 0
 
     issue_number = args.issue_flag or args.issue or config.github_issue_number
@@ -764,14 +813,14 @@ def main(argv=None):
     if not repo:
         sys.exit("Missing required environment variable: GITHUB_REPO")
 
-    print(f"Fetching {repo}#{issue_number}...")
+    logger.debug(f"Fetching {repo}#{issue_number}...")
     try:
         issue = github_get_issue(gh_token, repo, issue_number)
     except requests.HTTPError as exc:
         sys.exit(f"Failed to fetch GitHub issue: {_http_error_detail(exc)}")
 
     kind = "PR" if "pull_request" in issue else "issue"
-    print(f"Loaded {kind} #{issue['number']}: {issue.get('title')!r} [{issue.get('state')}]")
+    logger.info(f"Loaded {kind} #{issue['number']}: {issue.get('title')!r} [{issue.get('state')}]")
 
     try:
         ok, message = sync_one_issue(
@@ -794,9 +843,9 @@ def main(argv=None):
         sys.exit(f"Sync failed: {detail}")
 
     if not ok:
-        print(f"{repo}#{issue_number}: skipped ({message})")
+        logger.info(f"{repo}#{issue_number}: skipped ({message})")
         return 0
-    print(message)
+    logger.info(message)
     return 0
 
 
