@@ -56,6 +56,7 @@ def sync_env(monkeypatch):
     monkeypatch.delenv("A2G_ENRICHMENT", raising=False)
     monkeypatch.delenv("GITHUB_PROJECT_STATUS", raising=False)
     monkeypatch.delenv("COLUMNS_ONLY", raising=False)
+    monkeypatch.setenv("SYNC_ALL_PROJECT_ITEMS", "false")
     cfg.__dict__.clear()
     yield
     cfg.__dict__.clear()
@@ -219,7 +220,30 @@ def stub_github_get_issue(http: responses.RequestsMock, issue: dict) -> None:
     )
 
 
+def stub_asana_get_task(
+    http: responses.RequestsMock,
+    task_gid: str,
+    *,
+    projects: list[dict] | None = None,
+) -> None:
+    http.add(
+        responses.GET,
+        f"{ASANA_BASE}/tasks/{task_gid}",
+        json={
+            "data": {
+                "gid": task_gid,
+                "name": "task",
+                "projects": projects
+                if projects is not None
+                else [{"gid": PROJECT_GID, "name": "Engineering"}],
+            }
+        },
+        status=200,
+    )
+
+
 def stub_asana_update_task(http: responses.RequestsMock, task_gid: str) -> None:
+    stub_asana_get_task(http, task_gid)
     http.add(
         responses.PUT,
         f"{ASANA_BASE}/tasks/{task_gid}",

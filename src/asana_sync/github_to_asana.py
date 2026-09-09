@@ -6,7 +6,8 @@ Push a GitHub issue/PR update into the linked Asana task.
 
 Designed for fast, targeted sync from GitHub Actions on issue/PR events:
 fetch one issue by number, resolve its Asana task, and update that task only.
-Issues with no linked Asana task are skipped (exit 0).
+Issues with no linked Asana task, or whose task is not in
+ASANA_PROJECT_GID, are skipped (exit 0).
 
 Also syncs GitHub Projects v2 Status (board column) → Asana project section.
 
@@ -416,12 +417,7 @@ def asana_get_task(token, task_gid):
     resp = requests.get(
         f"{ASANA_BASE}/tasks/{task_gid}",
         headers=_asana_headers(token),
-        params={
-            "opt_fields": (
-                "gid,name,projects.gid,custom_fields.gid,custom_fields.name,"
-                "custom_fields.resource_subtype"
-            )
-        },
+        params={"opt_fields": "gid,name,projects.gid,projects.name"},
         timeout=30,
     )
     resp.raise_for_status()
@@ -439,23 +435,8 @@ def asana_update_task(token, task_gid, data):
     return resp.json()["data"]
 
 
-def github_issue_field_gid_on_task(task, configured_gid=None):
-    """Prefer the configured GID when the task has it; else the task's own GitHub Issue field."""
-    fields = [field for field in (task.get("custom_fields") or []) if field.get("gid")]
-    present = {field["gid"] for field in fields}
-    if configured_gid and configured_gid in present:
-        return configured_gid
-    by_name = {field.get("name"): field["gid"] for field in fields if field.get("name")}
-    for name in GITHUB_ISSUE_FIELD_NAMES:
-        if name in by_name:
-            return by_name[name]
-    return configured_gid
-
-
-def filter_custom_fields_for_task(custom_fields, task):
-    """Drop field GIDs that are not on the task (other Asana projects reject them with 400)."""
-    present = {field.get("gid") for field in (task.get("custom_fields") or []) if field.get("gid")}
-    return {gid: value for gid, value in custom_fields.items() if gid in present}
+def task_belongs_to_project(task, project_gid):
+    return any(project.get("gid") == project_gid for project in (task.get("projects") or []))
 
 
 def map_labels_to_custom_fields(label_names, fields_by_name):
@@ -621,6 +602,16 @@ def sync_one_issue(
     )
     if not task_gid:
         return False, "no linked Asana task"
+
+    task = asana_get_task(asana_token, task_gid)
+    if not task_belongs_to_project(task, asana_project_gid):
+        other = ", ".join(
+            project.get("name") or project.get("gid") or "?"
+            for project in (task.get("projects") or [])
+        )
+        if other:
+            return False, f"linked Asana task is in a different project ({other})"
+        return False, "linked Asana task is not in the configured Asana project"
 
     if status_name is None:
         status_name = resolve_status_name(gh_token, repo, issue, project_owner, project_number)
